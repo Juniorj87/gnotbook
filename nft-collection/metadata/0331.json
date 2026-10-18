@@ -1,0 +1,40 @@
+{
+  "name": "Moonbound Keepers #0331",
+  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
+  "image": "ipfs://IMAGE_DIRECTORY_CID/0331.webp",
+  "external_url": "https://morrow.market",
+  "attributes": [
+    {
+      "trait_type": "Keeper",
+      "value": "Ashen Pilgrim"
+    },
+    {
+      "trait_type": "Realm",
+      "value": "Ashen Wilds"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Twilight"
+    },
+    {
+      "trait_type": "Relic",
+      "value": "Iron Bell"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0331 / 1111"
+    },
+    {
+      "trait_type": "Frame",
+      "value": "Starlit"
+    },
+    {
+      "trait_type": "Palette",
+      "value": "Ember"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Common"
+    }
+  ]
+}

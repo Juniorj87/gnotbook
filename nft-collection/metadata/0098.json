@@ -1,0 +1,40 @@
+{
+  "name": "Moonbound Keepers #0098",
+  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
+  "image": "ipfs://IMAGE_DIRECTORY_CID/0098.webp",
+  "external_url": "https://morrow.market",
+  "attributes": [
+    {
+      "trait_type": "Keeper",
+      "value": "Moss Warden"
+    },
+    {
+      "trait_type": "Realm",
+      "value": "Mossgrove"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Verdant"
+    },
+    {
+      "trait_type": "Relic",
+      "value": "Seed Lantern"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0098 / 1111"
+    },
+    {
+      "trait_type": "Frame",
+      "value": "Orbit"
+    },
+    {
+      "trait_type": "Palette",
+      "value": "Amber"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Common"
+    }
+  ]
+}

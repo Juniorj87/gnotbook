@@ -1,0 +1,40 @@
+{
+  "name": "Moonbound Keepers #1093",
+  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
+  "image": "ipfs://IMAGE_DIRECTORY_CID/1093.webp",
+  "external_url": "https://morrow.market",
+  "attributes": [
+    {
+      "trait_type": "Keeper",
+      "value": "Dawn Herald"
+    },
+    {
+      "trait_type": "Realm",
+      "value": "Dawn Valley"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Dawn"
+    },
+    {
+      "trait_type": "Relic",
+      "value": "Sun Sigil"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "1093 / 1111"
+    },
+    {
+      "trait_type": "Frame",
+      "value": "Orbit"
+    },
+    {
+      "trait_type": "Palette",
+      "value": "Ember"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Epic"
+    }
+  ]
+}

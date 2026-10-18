@@ -1,0 +1,40 @@
+{
+  "name": "Moonbound Keepers #0483",
+  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
+  "image": "ipfs://IMAGE_DIRECTORY_CID/0483.webp",
+  "external_url": "https://morrow.market",
+  "attributes": [
+    {
+      "trait_type": "Keeper",
+      "value": "Ivory Oracle"
+    },
+    {
+      "trait_type": "Realm",
+      "value": "Ivory Reach"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Celestial"
+    },
+    {
+      "trait_type": "Relic",
+      "value": "Star Compass"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0483 / 1111"
+    },
+    {
+      "trait_type": "Frame",
+      "value": "Orbit"
+    },
+    {
+      "trait_type": "Palette",
+      "value": "Ember"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Common"
+    }
+  ]
+}

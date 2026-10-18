@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.*
+!.env.example
+data/store.json
+*.log
+.DS_Store
+nft-collection/pinned-manifest.json
+nft-collection/PIN_RESULTS.txt
+*.zip
+morrow-marketplace-release.zip
+NFTMARKET.zip

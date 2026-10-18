@@ -1,0 +1,40 @@
+{
+  "name": "Moonbound Keepers #0744",
+  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
+  "image": "ipfs://IMAGE_DIRECTORY_CID/0744.webp",
+  "external_url": "https://morrow.market",
+  "attributes": [
+    {
+      "trait_type": "Keeper",
+      "value": "Frost Sentinel"
+    },
+    {
+      "trait_type": "Realm",
+      "value": "Glacier Crown"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Glacial"
+    },
+    {
+      "trait_type": "Relic",
+      "value": "Ice Crystal"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0744 / 1111"
+    },
+    {
+      "trait_type": "Frame",
+      "value": "Glyph"
+    },
+    {
+      "trait_type": "Palette",
+      "value": "Sage"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Rare"
+    }
+  ]
+}

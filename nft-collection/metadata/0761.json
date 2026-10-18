@@ -1,0 +1,40 @@
+{
+  "name": "Moonbound Keepers #0761",
+  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
+  "image": "ipfs://IMAGE_DIRECTORY_CID/0761.webp",
+  "external_url": "https://morrow.market",
+  "attributes": [
+    {
+      "trait_type": "Keeper",
+      "value": "Amber Lantern"
+    },
+    {
+      "trait_type": "Realm",
+      "value": "Amber Dunes"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Amber"
+    },
+    {
+      "trait_type": "Relic",
+      "value": "Dune Beacon"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0761 / 1111"
+    },
+    {
+      "trait_type": "Frame",
+      "value": "Starlit"
+    },
+    {
+      "trait_type": "Palette",
+      "value": "Sage"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Rare"
+    }
+  ]
+}

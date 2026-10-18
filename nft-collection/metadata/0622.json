@@ -1,0 +1,40 @@
+{
+  "name": "Moonbound Keepers #0622",
+  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
+  "image": "ipfs://IMAGE_DIRECTORY_CID/0622.webp",
+  "external_url": "https://morrow.market",
+  "attributes": [
+    {
+      "trait_type": "Keeper",
+      "value": "Briar Sage"
+    },
+    {
+      "trait_type": "Realm",
+      "value": "Briarwood"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Wildwood"
+    },
+    {
+      "trait_type": "Relic",
+      "value": "Branch Scepter"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0622 / 1111"
+    },
+    {
+      "trait_type": "Frame",
+      "value": "Filigree"
+    },
+    {
+      "trait_type": "Palette",
+      "value": "Ember"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Common"
+    }
+  ]
+}

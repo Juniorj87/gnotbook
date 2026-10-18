@@ -1,0 +1,40 @@
+{
+  "name": "Moonbound Keepers #0384",
+  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
+  "image": "ipfs://IMAGE_DIRECTORY_CID/0384.webp",
+  "external_url": "https://morrow.market",
+  "attributes": [
+    {
+      "trait_type": "Keeper",
+      "value": "Astral Keeper"
+    },
+    {
+      "trait_type": "Realm",
+      "value": "Astral Expanse"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Astral"
+    },
+    {
+      "trait_type": "Relic",
+      "value": "Cosmic Astrolabe"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0384 / 1111"
+    },
+    {
+      "trait_type": "Frame",
+      "value": "Glyph"
+    },
+    {
+      "trait_type": "Palette",
+      "value": "Amber"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Epic"
+    }
+  ]
+}

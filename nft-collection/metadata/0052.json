@@ -1,0 +1,40 @@
+{
+  "name": "Moonbound Keepers #0052",
+  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
+  "image": "ipfs://IMAGE_DIRECTORY_CID/0052.webp",
+  "external_url": "https://morrow.market",
+  "attributes": [
+    {
+      "trait_type": "Keeper",
+      "value": "Ember Scribe"
+    },
+    {
+      "trait_type": "Realm",
+      "value": "Emberfall"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Ember"
+    },
+    {
+      "trait_type": "Relic",
+      "value": "Ember Lens"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0052 / 1111"
+    },
+    {
+      "trait_type": "Frame",
+      "value": "Filigree"
+    },
+    {
+      "trait_type": "Palette",
+      "value": "Sage"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Common"
+    }
+  ]
+}
