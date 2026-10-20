@@ -34,10 +34,18 @@ The public brand is **Gnotbook**; the on-chain contracts and the treasury keep t
 The backend never holds keys and never custodies an NFT. Everything a visitor sees is read from the chain
 or from a small server-owned store:
 
+- **Networks** — the server keeps a chain registry, not a single RPC. Every chain read travels with the
+  chain the request asks for (`?chain=`): the catalog, the market, the balances and the portfolio all
+  read from the network the visitor selected, and a saved collection belongs to the chain it was created on.
+  Gno.land chains speak ABCI; **AtomOne** is a Cosmos SDK chain and is read over REST for balances, because
+  Gnotbook collections are Gno realms and live on the Gno.land chains.
+  `/api/config` probes every chain and reports its RPC, registry, write flag and live health, so the
+  interface shows what actually answers instead of promising a network that is down.
 - **Catalog** — the union of three sources: the server's own store (drafts saved by creators), the
   on-chain registry (`ListCollections` on the registry realm) and the paths the moderation team has verified.
 - **Balances** — `bank/balances/<address>` over ABCI. The public RPC answers with a bare
   `"<amount><denom>"` string, so the response is normalised in `parseBalances()` before it reaches the UI.
+  On a Cosmos chain the same endpoint is read over `/cosmos/bank/v1beta1/balances`.
 - **Holdings** — for every realm the server knows about (the pinned collection, the external projects and
   the public catalog) it reads `BalanceOf` and walks `TokenOfOwnerByIndex`, then resolves `TokenURI` into
   metadata. Token ids are passed as **quoted strings**: the realm signature is `TokenURI(id string)`, and a
@@ -163,6 +171,21 @@ database.
 - Transactions stay disabled until the registry, treasury and network flag are configured.
 - The public catalog starts empty on purpose. `data/demo-store.json` holds four fictional collections
   (fake addresses) used only for UI review.
+- **The AtomOne testnet is gone.** The Helixbox endpoints (`rpc.atomone.helixbox.io`) no longer resolve,
+  so the AtomOne entry shows "Unreachable" until a live endpoint is configured. The reader, the chain
+  registry entry and the Keplr path are implemented — set `ATOMONE_RPC_URL` to a live Cosmos RPC and the
+  balance read starts working. Gno.land mainnet and the Onyx testnet both answer today.
+
+## Networks
+
+| Chain | Kind | RPC | Status |
+|---|---|---|---|
+| `gnoland-1` Gno.land | Gno / ABCI | `GNOLAND_RPC_URL` | live, mainnet writes behind `GNOLAND_MAINNET_TRADING_ENABLED` |
+| `onyx-1` Gno.land Onyx | Gno / ABCI | `GNOLAND_ONYX_RPC_URL` | live, read-only (`GNOLAND_ONYX_TRADING_ENABLED`) |
+| `atomone-1` AtomOne | Cosmos SDK | `ATOMONE_RPC_URL` | implemented; the public Helixbox testnet is offline |
+
+Each chain can carry its own registry (`MORROW_REGISTRY_PATH`, `MORROW_ONYX_REGISTRY_PATH`) and treasury
+(`MORROW_TREASURY_ADDRESS`, `MORROW_ONYX_TREASURY_ADDRESS`).
 
 ## Upstream and credits
 
