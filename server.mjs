@@ -1,4 +1,4 @@
-﻿import 'dotenv/config';
+import 'dotenv/config';
 import express from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -802,6 +802,7 @@ app.post('/api/collections/create', writeLimiter, async (req, res) => {
     });
     res.json({ ok: true, collection: newColl, whitelist: whitelistSummary });
   } catch (e) {
+    console.error('Collection create failed:', e && e.message ? e.message : e);
     json(res, 500, { ok: false, error: cleanText(e.message, 200) });
   }
 });
@@ -1109,9 +1110,17 @@ app.post('/api/admin/report-status', adminAuth, writeLimiter, async (req, res) =
 });
 app.use((err, _req, res, _next) => {
   if (res.headersSent) return;
-  const status = err instanceof multer.MulterError ? (err.code === 'LIMIT_FILE_SIZE' ? 413 : 400) : 500;
+  // Body-parser and other client errors carry their own status; do not report them as server faults.
+  const status = err instanceof multer.MulterError
+    ? (err.code === 'LIMIT_FILE_SIZE' ? 413 : 400)
+    : Number(err?.status || err?.statusCode) >= 400 && Number(err?.status || err?.statusCode) < 500
+      ? Number(err.status || err.statusCode)
+      : 500;
   if (status === 500) console.error('Morrow request error:', err.message);
-  res.status(status).json({ ok: false, error: status === 500 ? 'Request failed. Check server logs for the internal error.' : cleanText(err.message, 220) });
+  res.status(status).json({
+    ok: false,
+    error: status === 500 ? 'Request failed. Check server logs for the internal error.' : cleanText(err.message, 220)
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
