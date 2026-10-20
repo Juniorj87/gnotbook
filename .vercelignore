@@ -1,0 +1,15 @@
+node_modules
+.git
+.env
+.env.*
+!.env.example
+shots
+.tmp
+morrow-temp
+.freebuff
+*.zip
+приватник*
+private-key*
+*.key
+data/store.json
+docs/design-review/*.png
