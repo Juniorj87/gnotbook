@@ -20,3 +20,5 @@ shots/
 .tmp/
 morrow-temp/
 .freebuff/
+
+.vercel

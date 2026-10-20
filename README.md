@@ -6,6 +6,9 @@ artwork and a moderation desk. It does not depend on another marketplace's regis
 
 The public brand is **Gnotbook**; the on-chain contracts and the treasury keep the **Morrow** name.
 
+- **Live:** https://gnotbook.vercel.app
+- **Source:** https://github.com/Juniorj87/gnotbook
+
 ---
 
 ## What it does
