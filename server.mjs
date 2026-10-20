@@ -382,8 +382,10 @@ async function readBalances(address) {
   return parseBalances(result.data || '{}');
 }
 // Neon and other managed Postgres hand out a pooled URL with `channel_binding=require`,
-// which node-postgres cannot negotiate. Strip it and force TLS instead of failing later.
-function pgConnectionOptions() {
+// which node-postgres cannot negotiate. Strip it and verify the server certificate;
+// if a provider's chain does not validate, fall back once to an encrypted but
+// unverified connection instead of losing the store entirely.
+function pgConnectionOptions(relaxed = false) {
   const raw = String(process.env.DATABASE_URL || '');
   let connectionString = raw;
   let ssl;
@@ -394,11 +396,32 @@ function pgConnectionOptions() {
     const wantsSsl = ['require', 'prefer', 'verify-ca', 'verify-full'].includes(sslMode)
       || ['1', 'true', 'yes'].includes(String(process.env.PGSSL || '').toLowerCase());
     connectionString = url.toString();
-    if (wantsSsl) ssl = { rejectUnauthorized: false };
+    if (wantsSsl) ssl = { rejectUnauthorized: !relaxed };
   } catch {
-    ssl = /^(true|1)$/i.test(process.env.PGSSL || 'false') ? { rejectUnauthorized: false } : undefined;
+    ssl = { rejectUnauthorized: !relaxed };
   }
   return { connectionString, ssl };
+}
+let pgPoolRelaxed = false;
+async function pgQuery(text, params = []) {
+  if (!pgPool) {
+    const { Pool } = await import('pg');
+    pgPool = new Pool({ ...pgConnectionOptions(), max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 5000 });
+  }
+  try {
+    return await pgPool.query(text, params);
+  } catch (e) {
+    const message = String(e?.message || '');
+    if (!pgPoolRelaxed && /certificate|self signed|unable to verify|SSL/i.test(message)) {
+      console.warn('Postgres TLS verification failed; retrying with an encrypted but unverified connection:', message);
+      pgPoolRelaxed = true;
+      try { await pgPool.end(); } catch {}
+      const { Pool } = await import('pg');
+      pgPool = new Pool({ ...pgConnectionOptions(true), max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 5000 });
+      return pgPool.query(text, params);
+    }
+    throw e;
+  }
 }
 async function readStore() {
   if (process.env.DATABASE_URL) {
@@ -406,10 +429,10 @@ async function readStore() {
       if (!pgPool) {
         const { Pool } = await import('pg');
         pgPool = new Pool({ ...pgConnectionOptions(), max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 5000 });
-        await pgPool.query('CREATE TABLE IF NOT EXISTS morrow_store (id integer PRIMARY KEY CHECK (id=1), data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())');
-        await pgPool.query('INSERT INTO morrow_store (id,data) VALUES (1,$1) ON CONFLICT (id) DO NOTHING', [JSON.stringify(emptyStore())]);
+        await pgQuery('CREATE TABLE IF NOT EXISTS morrow_store (id integer PRIMARY KEY CHECK (id=1), data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())');
+        await pgQuery('INSERT INTO morrow_store (id,data) VALUES (1,$1) ON CONFLICT (id) DO NOTHING', [JSON.stringify(emptyStore())]);
       }
-      const result = await pgPool.query('SELECT data FROM morrow_store WHERE id=1');
+      const result = await pgQuery('SELECT data FROM morrow_store WHERE id=1');
       return normalizeStore(result.rows[0]?.data);
     } catch (e) { console.error('Postgres store unavailable; local JSON fallback is active:', e.message); }
   }
@@ -423,7 +446,7 @@ async function writeStore(store) {
   if (process.env.DATABASE_URL) {
     try {
       if (!pgPool) await readStore();
-      if (pgPool) { await pgPool.query('INSERT INTO morrow_store (id,data,updated_at) VALUES (1,$1,now()) ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data,updated_at=now()', [JSON.stringify(normalized)]); return; }
+      if (pgPool) { await pgQuery('INSERT INTO morrow_store (id,data,updated_at) VALUES (1,$1,now()) ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data,updated_at=now()', [JSON.stringify(normalized)]); return; }
     } catch (e) { console.error('Postgres write failed; writing local JSON fallback:', e.message); }
   }
   await fs.mkdir(path.dirname(STORE_PATH), { recursive: true });
