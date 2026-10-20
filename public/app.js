@@ -20,8 +20,18 @@ const state = {
   busy:false, txHistory:[], localCollections:JSON.parse(localStorage.getItem('morrow_created_collections')||'[]'),
   itemMeta:null, itemId:null, itemPkg:null, activePortfolioTab:'nfts',
   gallery:{query:'',rarity:'all',traitType:'all',traitValue:'all',sort:'ed',status:'all',limit:6},
-  trending:'all', mintsUsed:0, upcomingFilter:'all', upcomingSort:'time-asc'
+  trending:'all', mintsUsed:0, upcomingFilter:'all', upcomingSort:'time-asc',
+  activeNetwork:'gnoland'
 };
+
+// The network the interface talks to. 'gnoland' and 'onyx' are Gno.land chains
+// (Gno realms live there); 'atomone' is the Cosmos SDK side and is read-only.
+const CHAIN_IDS = { gnoland:'gnoland-1', onyx:'onyx-1', atomone:'atomone-1' };
+const activeChainId = () => CHAIN_IDS[state.activeNetwork] || 'gnoland-1';
+const chainQuery = () => `chain=${encodeURIComponent(activeChainId())}`;
+const chainLabel = () => (state.config?.chains||[]).find(c=>c.id===activeChainId())?.label
+  || (state.activeNetwork==='atomone' ? 'AtomOne' : state.activeNetwork==='onyx' ? 'Gno.land Onyx' : 'Gno.land');
+const isCosmosChain = () => state.activeNetwork==='atomone';
 
 const $ = (s, r=document)=>r.querySelector(s);
 const $$ = (s, r=document)=>[...r.querySelectorAll(s)];
@@ -78,7 +88,7 @@ function renderFooterSocials() {
 function updateHeader() {
   const btn=$('#walletButtonText'); const walletButton=$('#walletButton');
   const netName=$('#activeNetworkName');
-  if(netName) netName.textContent = state.activeNetwork === 'atomone' ? 'AtomOne' : 'Gno.land';
+  if(netName) netName.textContent = chainLabel();
   if(state.wallet){
     const icon = state.wallet.network === 'atomone' ? '⚛ ' : '⚡ ';
     btn.textContent = icon + shortAddr(state.wallet.address);
@@ -89,16 +99,16 @@ function updateHeader() {
   $$('.nav-link').forEach(x=>{const active=x.dataset.route===state.route || (state.route==='collection'&&x.dataset.route==='collections') || (state.route==='item'&&x.dataset.route==='explore');x.classList.toggle('active',active);if(active)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current')});
 }
 async function bootstrap() {
-  try { state.config=await api('/api/config'); }
-  catch(e) { state.config={chainId:'gnoland-1',registryConfigured:false,bootstrapEnabled:false,tradingEnabled:false,transactionsEnabled:false,treasuryConfigured:false,pinningConfigured:false,collectionServiceFeeUgnot:5_000_000,marketplaceFeeBps:250,adminWallet:'',launchFeeGnot:5,moonbound:{name:'GNO PUNK',symbol:'GNP',maxSupply:1000,mintPriceUgnot:5_000_000,mintEnabled:false,assetsConfigured:false,collectionPath:''},points:{buy:10,list:5,mint:8,launch:15,cancel:2}}; toast('Marketplace settings are not reachable; read-only mode is active.','error'); }
-  try { state.market=await api('/api/market'); } catch(e) {state.market={collections:[],listings:[],ok:false,error:e.message}}
+  try { state.config=await api(`/api/config?${chainQuery()}`); }
+  catch(e) { state.config={chainId:'gnoland-1',chains:[],registryConfigured:false,bootstrapEnabled:false,tradingEnabled:false,transactionsEnabled:false,treasuryConfigured:false,pinningConfigured:false,collectionServiceFeeUgnot:5_000_000,marketplaceFeeBps:250,adminWallet:'',launchFeeGnot:5,moonbound:{name:'GNO PUNK',symbol:'GNP',maxSupply:1000,mintPriceUgnot:5_000_000,mintEnabled:false,assetsConfigured:false,collectionPath:''},points:{buy:10,list:5,mint:8,launch:15,cancel:2}}; toast('Marketplace settings are not reachable; read-only mode is active.','error'); }
+  try { state.market=await api(`/api/market?${chainQuery()}`); } catch(e) {state.market={collections:[],listings:[],ok:false,error:e.message}}
   if(!state.market.collections)state.market.collections=[]; if(!state.market.listings)state.market.listings=[];
   if(sessionStorage.getItem('morrow_wallet')) {
     try { const saved=JSON.parse(sessionStorage.getItem('morrow_wallet')); if(saved?.address) {state.wallet=saved; await refreshWalletData();} } catch {sessionStorage.removeItem('morrow_wallet')}
   }
   await loadFacets();
   await restoreRouteLocation(); updateHeader(); renderFooterSocials();
-  const interval=setInterval(async()=>{ try{state.market=await api('/api/market'); if(['explore','market','collections','activity','rewards','portfolio','collection','create','item','upcoming'].includes(state.route))render();}catch{} },60_000);
+  const interval=setInterval(async()=>{ try{state.market=await api(`/api/market?${chainQuery()}`); if(['explore','market','collections','activity','rewards','portfolio','collection','create','item','upcoming'].includes(state.route))render();}catch{} },60_000);
   window.addEventListener('beforeunload',()=>clearInterval(interval),{once:true});
 }
 // The contract caps public mints per wallet. The limit is read from the chain, so the UI can never
@@ -120,8 +130,8 @@ async function refreshWalletData() {
   if(!state.wallet?.address)return;
   const addr=state.wallet.address;
   const tasks=await Promise.allSettled([
-    api(`/api/wallet/${encodeURIComponent(addr)}/balances`),
-    api(`/api/portfolio/${encodeURIComponent(addr)}`),
+    api(`/api/wallet/${encodeURIComponent(addr)}/balances?${chainQuery()}`),
+    api(`/api/portfolio/${encodeURIComponent(addr)}?${chainQuery()}`),
     api(`/api/points/${encodeURIComponent(addr)}`),
     refreshMintAllowance()
   ]);
@@ -136,23 +146,45 @@ function normalizeWalletChain(value){
  if(['onyx-1','onyx','testnet','gno testnet','gno-testnet'].includes(v))return 'onyx-1';
  return v;
 }
+async function switchChain(chainId){
+  const key=Object.keys(CHAIN_IDS).find(k=>CHAIN_IDS[k]===chainId);
+  if(!key||state.activeNetwork===key)return;
+  state.activeNetwork=key;
+  sessionStorage.setItem('morrow_network',key);
+  try{ state.config=await api(`/api/config?${chainQuery()}`); }catch{}
+  try{ state.market=await api(`/api/market?${chainQuery()}`); }catch{ state.market={collections:[],listings:[],ok:false}; }
+  await refreshWalletData();
+  updateHeader(); render();
+  toast(`${chainLabel()} is now the active network.`,'ok');
+}
 function openNetworkModal(){
-  modal(`<div class="modal-body"><div class="eyebrow"><span class="eyedot"></span> Network &amp; Wallets</div><h2 class="detail-title">Choose your ecosystem</h2><p class="detail-info">Gnotbook connects seamlessly to Gno.land via Adena and AtomOne via Keplr.</p>
+  const chains=state.config?.chains||[];
+  const card=(id,label,icon,wallet,desc,note)=>{
+    const meta=chains.find(c=>c.id===id)||{};
+    const active=activeChainId()===id;
+    const healthy=meta.health?meta.health.healthy!==false:true;
+    const acts=meta.writesEnabled?'Transactions on':'Read-only';
+    const status=healthy
+      ? `${acts}${meta.registryConfigured?' · registry':''}`
+      : `Unreachable${meta.health&&meta.health.error?` — ${meta.health.error}`:''}`;
+    return `<div class="network-card ${active?'selected':''}" style="display:flex;align-items:center;justify-content:space-between;padding:16px;border:2px solid ${active?'var(--accent)':'var(--line)'};border-radius:12px;background:var(--surface-2);gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:12px;min-width:0">
+        <span style="font-size:22px">${icon}</span>
+        <div style="min-width:0"><b>${label}</b><small style="display:block;color:var(--ink-soft)">${desc}</small>
+        <small style="display:block;color:${healthy?'var(--ink-soft)':'var(--warn)'};font-family:var(--font-mono);font-size:11px;margin-top:3px">${escapeHTML(status)}</small>
+        <small style="display:block;color:var(--ink-soft);font-family:var(--font-mono);font-size:10.5px;margin-top:2px">${meta.rpc?escapeHTML(meta.rpc):'—'}</small></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-sm btn-outline" data-action="select-chain" data-value="${id}">${active?'Viewing':'Switch'}</button>
+        <button class="btn btn-sm btn-dark" data-action="${wallet}">Connect</button>
+      </div>
+    </div>`;
+  };
+  modal(`<div class="modal-body"><div class="eyebrow"><span class="eyedot"></span> Network &amp; Wallets</div><h2 class="detail-title">Choose your ecosystem</h2><p class="detail-info">Gnotbook reads the chain you pick. Gno.land collections are Gno realms and live on the Gno.land chains; AtomOne is a Cosmos SDK chain and is read for wallet balances only.</p>
   <div class="network-cards" style="display:flex;flex-direction:column;gap:12px;margin:20px 0">
-    <div class="network-card ${state.activeNetwork==='gnoland'?'selected':''}" style="display:flex;align-items:center;justify-content:space-between;padding:16px;border:1px solid var(--line-2);border-radius:12px;background:var(--panel-2)">
-      <div style="display:flex;align-items:center;gap:12px">
-        <span style="font-size:24px">⚡</span>
-        <div><b>Gno.land Mainnet</b><small style="display:block;color:var(--muted)">Adena Wallet · GNOT currency · GRC721</small></div>
-      </div>
-      <button class="btn btn-sm btn-dark" data-action="connect-adena">Connect Adena</button>
-    </div>
-    <div class="network-card ${state.activeNetwork==='atomone'?'selected':''}" style="display:flex;align-items:center;justify-content:space-between;padding:16px;border:1px solid var(--line-2);border-radius:12px;background:var(--panel-2)">
-      <div style="display:flex;align-items:center;gap:12px">
-        <span style="font-size:24px">⚛</span>
-        <div><b>AtomOne IBC Chain</b><small style="display:block;color:var(--muted)">Keplr Wallet · ATONE currency · Cosmos SDK</small></div>
-      </div>
-      <button class="btn btn-sm btn-dark" data-action="connect-keplr">Connect Keplr</button>
-    </div>
+    ${card('gnoland-1','Gno.land','⚡','connect-adena','Adena Wallet · GNOT · GRC721')}
+    ${card('onyx-1','Gno.land Onyx','🧪','connect-adena','Adena Wallet · GNOT · testnet')}
+    ${card('atomone-1','AtomOne','⚛','connect-keplr','Keplr Wallet · ATONE · Cosmos SDK')}
   </div>
   <button class="btn btn-outline btn-full" data-action="close-modal">Close</button>
   </div>`);
@@ -195,8 +227,9 @@ async function connectKeplr(){
     state.activeNetwork='atomone';
     sessionStorage.setItem('morrow_network','atomone');
     state.wallet={address:key.bech32Address,name:key.name||'Keplr',chainId:'atomone-1',network:'atomone'};
-    state.balances=[{denom:'uatone',amount:'1000000'}];
     sessionStorage.setItem('morrow_wallet',JSON.stringify(state.wallet));
+    // The balance is read from the AtomOne RPC through the server — never a placeholder.
+    await refreshWalletData();
     updateHeader(); render(); toast(`Connected Keplr on AtomOne: ${shortAddr(key.bech32Address)}`,'ok');
   }catch(e){toast(e.message||'Keplr connection failed.','error')}
 }
@@ -533,7 +566,10 @@ function renderCollectionCards(colls){
 }
 
 function renderExplore(){
-  return `${renderHero()}${renderUpcomingStrip()}${renderExploreCollections()}${renderListings()}`;
+  const note=state.market&&state.market.warning
+    ? `<div class="inline-info" style="margin-bottom:22px"><strong>${escapeHTML(chainLabel())}:</strong> ${escapeHTML(state.market.warning)}</div>`
+    : '';
+  return `${note}${renderHero()}${renderUpcomingStrip()}${renderExploreCollections()}${renderListings()}`;
 }
 
 async function openCollection(path,fromHistory=false){
@@ -658,9 +694,18 @@ function renderTraits(meta){
 function renderPortfolio(){
   if(!state.wallet)return `<div class="page-heading"><div><div class="eyebrow"><span class="eyedot"></span> Your space</div><h1>Portfolio</h1><p>Your collectibles, collection realms and token balances, directly connected to your wallet.</p></div></div><div class="empty-state"><div class="empty-art">▦</div><h3>Your collection belongs here</h3><p>Connect Adena to read the wallet address, balances and known Gno.land NFT holdings. Gnotbook never stores your private key or seed phrase.</p><button class="btn btn-dark" data-action="connect">Connect Adena</button></div>`;
   const holdings=state.portfolio.tokens||[];const colls=state.portfolio.collections||[];
-  return `<div class="page-heading"><div><div class="eyebrow"><span class="eyedot"></span> Your space</div><h1>Portfolio</h1><p>Only the public wallet address is used to read balances and NFTs from Gnotbook-registered Gno.land collections.</p></div><div class="heading-actions"><button class="btn btn-outline" data-action="refresh-wallet">REFRESH PORTFOLIO ↻</button></div></div>
-  <div class="wallet-hero"><div><div class="eyebrow" style="color:var(--primary-light)">Connected with Adena</div><h2>Looking good.</h2><p>Your keys stay with you. Gnotbook never takes custody.</p><div class="wallet-address mono">${escapeHTML(state.wallet.address)}</div></div><div><div class="tiny-label" style="color:var(--muted)">Native balance</div><div class="wallet-balance">${displayGnot((state.balances.find(x=>x.denom==='ugnot')||{}).amount||0)}</div></div></div>
-  <div class="stat-grid"><div class="stat-card"><span class="stat-label">NFTs found</span><strong>${holdings.length}</strong><span class="stat-foot">Gnotbook-registered collections</span></div><div class="stat-card"><span class="stat-label">Collections held</span><strong>${colls.length}</strong><span class="stat-foot">With indexed NFTs</span></div><div class="stat-card"><span class="stat-label">Gnotbook points</span><strong>${Number(state.points.total||0).toLocaleString('en-US')}</strong><span class="stat-foot">Verified on-chain actions</span></div><div class="stat-card"><span class="stat-label">Wallet custody</span><strong>100%</strong><span class="stat-foot">Self-custodied in Adena</span></div></div>
+  const currency=state.config?.currency||'GNOT';
+  const denom=currency==='ATONE'?'uatone':'ugnot';
+  const native=(state.balances.find(x=>x.denom===denom)||{}).amount||0;
+  const balanceText=currency==='ATONE'
+    ? `${(Number(native)/1_000_000).toLocaleString('en-US',{maximumFractionDigits:6})} ${currency}`
+    : displayGnot(native);
+  const walletName=state.wallet.network==='atomone'?'Keplr':'Adena';
+  const cosmos=isCosmosChain();
+  return `<div class="page-heading"><div><div class="eyebrow"><span class="eyedot"></span> Your space · ${escapeHTML(chainLabel())}</div><h1>Portfolio</h1><p>Only the public wallet address is used to read balances and NFTs from Gnotbook-registered Gno.land collections.</p></div><div class="heading-actions"><button class="btn btn-outline" data-action="refresh-wallet">REFRESH PORTFOLIO ↻</button></div></div>
+  <div class="wallet-hero"><div><div class="eyebrow" style="color:var(--primary-light)">Connected with ${walletName} on ${escapeHTML(chainLabel())}</div><h2>Looking good.</h2><p>Your keys stay with you. Gnotbook never takes custody.</p><div class="wallet-address mono">${escapeHTML(state.wallet.address)}</div></div><div><div class="tiny-label" style="color:var(--muted)">Native balance</div><div class="wallet-balance">${balanceText}</div></div></div>
+  ${cosmos?`<div class="inline-info" style="margin-top:0;margin-bottom:16px">AtomOne is a Cosmos SDK chain: Gnotbook reads your <strong>${escapeHTML(currency)}</strong> balance here. Collections are Gno realms and live on the Gno.land chains — switch the network in the top bar to browse them.</div>`:''}
+  <div class="stat-grid"><div class="stat-card"><span class="stat-label">NFTs found</span><strong>${holdings.length}</strong><span class="stat-foot">Gnotbook-registered collections</span></div><div class="stat-card"><span class="stat-label">Collections held</span><strong>${colls.length}</strong><span class="stat-foot">With indexed NFTs</span></div><div class="stat-card"><span class="stat-label">Gnotbook points</span><strong>${Number(state.points.total||0).toLocaleString('en-US')}</strong><span class="stat-foot">Verified on-chain actions</span></div><div class="stat-card"><span class="stat-label">Wallet custody</span><strong>100%</strong><span class="stat-foot">Self-custodied in ${walletName}</span></div></div>
   <div class="tabs-row"><button class="tab-btn ${state.activePortfolioTab==='nfts'?'active':''}" data-action="portfolio-tab" data-value="nfts">My NFTs (${holdings.length})</button><button class="tab-btn ${state.activePortfolioTab==='collections'?'active':''}" data-action="portfolio-tab" data-value="collections">My collections (${colls.length})</button><button class="tab-btn ${state.activePortfolioTab==='tokens'?'active':''}" data-action="portfolio-tab" data-value="tokens">Tokens (${state.balances.length})</button></div>
   ${state.activePortfolioTab==='nfts'?(holdings.length?`<div class="nft-grid">${holdings.map(n=>artCard({...n,preview:false})).join('')}</div>`:`<div class="empty-state"><div class="empty-art">◈</div><h3>No NFTs found in indexed collections</h3><p>Gnotbook scans its own on-chain registry. It does not claim to index every independent NFT realm on Gno.land.</p><button class="btn btn-outline" data-route="collections">Browse collections</button></div>`):state.activePortfolioTab==='collections'?(colls.length?renderCollectionCards(colls):`<div class="empty-state"><h3>No collection NFTs found</h3><p>Launch your first collection and it will appear here after the registry confirms it.</p><button class="btn btn-dark" data-route="create">Create collection</button></div>`):`<div class="activity-list">${state.balances.map(b=>`<div class="activity-row"><div class="activity-icon">◈</div><div><strong>${escapeHTML(b.denom==='ugnot'?'GNOT':b.denom)}</strong><span class="mono">${escapeHTML(b.denom)}</span></div><div class="activity-value">${Number(b.amount).toLocaleString('en-US',{maximumFractionDigits:6})}</div></div>`).join('')}</div>`}
   `;
@@ -1283,7 +1328,7 @@ function saleTotal(priceUgnot){const price=Number(priceUgnot||0);const fee=Math.
 
 async function refreshMarket(){
   try{
-    state.market=await api('/api/market');
+    state.market=await api(`/api/market?${chainQuery()}`);
   }catch(e){
     // A read-only server without a configured registry answers ok:false; that is a state, not a failure.
     state.market={ok:false,collections:[],listings:[],warning:state.config?.registryError||e.message};
@@ -1751,6 +1796,7 @@ document.addEventListener('click',async event=>{
         case 'connect-adena':{await connectAdena();return}
         case 'connect-keplr':{await connectKeplr();return}
         case 'open-network-modal':{openNetworkModal();return}
+        case 'select-chain':{closeModal();await switchChain(action.dataset.value);return}
         default:return;
       }
     }catch(err){toast(err.message||'That action failed.','error',7500)}

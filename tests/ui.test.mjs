@@ -18,8 +18,8 @@ test('desktop navigation exposes the requested marketplace sections', () => {
 });
 
 test('frontend assets use a cache-busting version so deployed UI changes are fetched', () => {
-  assert.match(html, /styles\.css\?v=20261022-flat-6/);
-  assert.match(html, /app\.js\?v=20261022-flat-6/);
+  assert.match(html, /styles\.css\?v=20261022-flat-7/);
+  assert.match(html, /app\.js\?v=20261022-flat-7/);
 });
 
 test('navigation preserves route state across refresh and browser history', () => {
@@ -52,8 +52,22 @@ test('the quests page and the footer social links are reachable', () => {
   assert.match(app, /function renderFooterSocials\(/);
 });
 
+test('the server speaks more than one network and reports each chain honestly', () => {
+  assert.match(server, /const CHAINS = \[/);
+  assert.match(server, /id: 'gnoland-1'/);
+  assert.match(server, /id: 'onyx-1'/);
+  assert.match(server, /id: 'atomone-1'/);
+  // A Cosmos chain is read over REST, a Gno chain over ABCI.
+  assert.match(server, /cosmos\/bank\/v1beta1\/balances/);
+  assert.match(server, /chainFromRequest/);
+  // The client picks the network and passes it with every chain-scoped read.
+  assert.match(app, /const CHAIN_IDS = \{ gnoland:'gnoland-1', onyx:'onyx-1', atomone:'atomone-1' \}/);
+  assert.match(app, /api\(`\/api\/market\?\$\{chainQuery\(\)\}`\)/);
+  assert.match(app, /api\(`\/api\/wallet\/\$\{encodeURIComponent\(addr\)\}\/balances\?\$\{chainQuery\(\)\}`\)/);
+  assert.match(app, /case 'select-chain':/);
+});
+
 test('creators can pin their own artwork and hand over the CIDs', () => {
-  // The server can read a public gateway without holding a storage credential.
   assert.match(server, /app\.post\('\/api\/ipfs\/verify'/);
   assert.match(server, /function resolveCid\(/);
   // The create form offers the self-service route with links to both providers.
@@ -83,7 +97,7 @@ test('item page uses the LEGO art stage with plastic shadow', () => {
 test('homepage shows the server-backed Upcoming Mints and excludes the legacy featured drop block', () => {
   assert.match(app, /function renderUpcoming\(/);
   assert.match(app, /function renderMintCalendar\(\)\{\s*return renderUpcoming\(\);\s*\}/);
-  assert.match(app, /renderExplore\(\)\{\s*return `\$\{renderHero\(\)\}\$\{renderUpcomingStrip\(\)\}/);
+  assert.match(app, /renderExplore\(\)\{[\s\S]{0,400}return `\$\{note\}\$\{renderHero\(\)\}\$\{renderUpcomingStrip\(\)\}/);
   // The old demo entry points (genesis drop grid, GNO PUNK launch panel) must not be
   // reachable from the homepage assembly anymore.
   assert.doesNotMatch(app, /renderDrops\(\)|renderUnrevealedGrid\(\)|renderGenesisLaunch\(\)/);

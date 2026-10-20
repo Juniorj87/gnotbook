@@ -107,30 +107,63 @@ function decodeAmino(typed) {
   if (Object.hasOwn(typed, 'value') && typeof typed.value !== 'object') return typed.value;
   return typed;
 }
-async function rpc(method, params = {}, timeoutMs = 9000) {
+// Supported networks. A Gno.land chain speaks the ABCI dialect below; AtomOne is a
+// Cosmos SDK chain, so only its balances are read here — Gnotbook collections are
+// Gno realms and live on the Gno.land chains.
+const CHAINS = [
+  {
+    id: 'gnoland-1', label: 'Gno.land', kind: 'gno', currency: 'GNOT',
+    rpc: (process.env.GNOLAND_RPC_URL || 'https://rpc.gno.land:443').replace(/\/$/, ''),
+    registry: process.env.MORROW_REGISTRY_PATH || '',
+    treasury: TREASURY,
+    writes: /^(1|true|yes)$/i.test(process.env.GNOLAND_MAINNET_TRADING_ENABLED || 'false')
+  },
+  {
+    id: 'onyx-1', label: 'Gno.land Onyx', kind: 'gno', currency: 'GNOT',
+    rpc: (process.env.GNOLAND_ONYX_RPC_URL || 'https://rpc.onyx.testnets.gno.land:443').replace(/\/$/, ''),
+    registry: process.env.MORROW_ONYX_REGISTRY_PATH || '',
+    treasury: String(process.env.MORROW_ONYX_TREASURY_ADDRESS || TREASURY).trim(),
+    writes: /^(1|true|yes)$/i.test(process.env.GNOLAND_ONYX_TRADING_ENABLED || 'false')
+  },
+  {
+    id: 'atomone-1', label: 'AtomOne', kind: 'cosmos', currency: 'ATONE',
+    rpc: (process.env.ATOMONE_RPC_URL || 'https://rpc.atomone.helixbox.io').replace(/\/$/, ''),
+    registry: '',
+    treasury: TREASURY,
+    writes: false
+  }
+];
+const DEFAULT_CHAIN = CHAINS[0];
+const chainById = (id) => CHAINS.find((c) => c.id === String(id || '').trim()) || null;
+// The chain a request speaks to: explicit ?chain=, else the default.
+function chainFromRequest(req) {
+  const asked = chainById(req?.query?.chain || req?.headers?.['x-gnotbook-chain']);
+  return asked || DEFAULT_CHAIN;
+}
+async function rpc(method, params = {}, timeoutMs = 9000, chain = DEFAULT_CHAIN) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await fetch(`${RPC_URL}/`, {
+    const resp = await fetch(`${chain.rpc}/`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: `${Date.now()}`, method, params }), signal: controller.signal
     });
     const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) throw new Error(`Gno RPC HTTP ${resp.status}`);
-    if (data.error) throw new Error(data.error.message || `Gno RPC ${method} failed`);
+    if (!resp.ok) throw new Error(`${chain.label} RPC HTTP ${resp.status}`);
+    if (data.error) throw new Error(data.error.message || `${chain.label} RPC ${method} failed`);
     return data.result;
   } finally { clearTimeout(timer); }
 }
-async function abciQuery(queryPath, data = '', timeoutMs = 9000) {
+async function abciQuery(queryPath, data = '', timeoutMs = 9000, chain = DEFAULT_CHAIN) {
   const params = { path: queryPath };
   if (data !== '') params.data = Buffer.from(String(data)).toString('base64');
-  const result = await rpc('abci_query', params, timeoutMs);
+  const result = await rpc('abci_query', params, timeoutMs, chain);
   const base = result?.response?.ResponseBase;
   if (!base) throw new Error('Unexpected Gno RPC query response.');
   if (base.Error) throw new Error(typeof base.Error === 'string' ? base.Error : (base.Error.message || JSON.stringify(base.Error)));
   return { raw: result, data: decodeBase64(base.Data).toString('utf8'), height: result?.response?.Height || null };
 }
-async function evalValues(pkg, func, args = [], timeoutMs = 9000) {
+async function evalValues(pkg, func, args = [], timeoutMs = 9000, chain = DEFAULT_CHAIN) {
   const clean = cleanPkgPath(pkg);
   if (!clean || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(func))) throw new Error('Invalid Gno realm query.');
   const exprArgs = args.map((arg) => {
@@ -143,15 +176,15 @@ async function evalValues(pkg, func, args = [], timeoutMs = 9000) {
     return JSON.stringify(v);
   });
   const expr = `${clean}.${func}(${exprArgs.join(',')})`;
-  const out = await abciQuery('vm/qeval_json', expr, timeoutMs);
+  const out = await abciQuery('vm/qeval_json', expr, timeoutMs, chain);
   let parsed;
   try { parsed = JSON.parse(out.data); } catch { throw new Error('Gno returned invalid structured data.'); }
   if (parsed && typeof parsed === 'object' && Array.isArray(parsed.results)) parsed = parsed.results;
   if (!Array.isArray(parsed)) return [decodeAmino(parsed)];
   return parsed.map(decodeAmino);
 }
-async function evalValue(pkg, func, args = [], timeoutMs = 9000) {
-  const values = await evalValues(pkg, func, args, timeoutMs);
+async function evalValue(pkg, func, args = [], timeoutMs = 9000, chain = DEFAULT_CHAIN) {
+  const values = await evalValues(pkg, func, args, timeoutMs, chain);
   return values.length === 1 ? values[0] : values;
 }
 // A single-value qeval_json response keeps Gno's {"results":[...]} envelope; unwrap and decode it.
@@ -160,7 +193,7 @@ function unwrapResults(value) {
   const list = Array.isArray(raw) ? raw : [raw];
   return list.map(decodeAmino);
 }
-async function realmRead(pkg, func) { return unwrapResults(await evalValue(pkg, func))[0]; }
+async function realmRead(pkg, func, chain = DEFAULT_CHAIN) { return unwrapResults(await evalValue(pkg, func, [], 9000, chain))[0]; }
 // External Gno.land projects surfaced in the market. Every number is read from the realm itself,
 // never estimated, and no listing is shown for a realm Morrow cannot custody.
 const EXTERNAL_PROJECTS = [
@@ -262,17 +295,17 @@ function normalizeRegistryRow(row) {
     description: '', onchain: true
   };
 }
-async function readCollection(pathValue) {
+async function readCollection(pathValue, chain = DEFAULT_CHAIN) {
   const cPath = toCollectionPath(pathValue);
   if (!cPath) throw new Error('Invalid collection path.');
   const [name, symbol, creator, cover, maxSupply, minted, mintPrice, royaltyBps, imageBaseURI, metadataBaseURI, marketplaceFeeBps, marketplaceFeeSink] = await Promise.all([
-    evalValue(cPath, 'Name').catch(() => ''), evalValue(cPath, 'Symbol').catch(() => ''),
-    evalValue(cPath, 'Creator').catch(() => ''), evalValue(cPath, 'Cover').catch(() => ''),
-    evalValue(cPath, 'MaxSupply').catch(() => 0), evalValue(cPath, 'Minted').catch(() => 0),
-    evalValue(cPath, 'MintPrice').catch(() => 0), evalValue(cPath, 'RoyaltyBps').catch(() => 0),
-    evalValue(cPath, 'ImageBaseURI').catch(() => evalValue(cPath, 'AssetBaseURI').catch(() => '')),
-    evalValue(cPath, 'MetadataBaseURI').catch(() => ''), evalValue(cPath, 'MarketplaceFeeBps').catch(() => 0),
-    evalValue(cPath, 'MarketplaceFeeSink').catch(() => '')
+    evalValue(cPath, 'Name', [], 9000, chain).catch(() => ''), evalValue(cPath, 'Symbol', [], 9000, chain).catch(() => ''),
+    evalValue(cPath, 'Creator', [], 9000, chain).catch(() => ''), evalValue(cPath, 'Cover', [], 9000, chain).catch(() => ''),
+    evalValue(cPath, 'MaxSupply', [], 9000, chain).catch(() => 0), evalValue(cPath, 'Minted', [], 9000, chain).catch(() => 0),
+    evalValue(cPath, 'MintPrice', [], 9000, chain).catch(() => 0), evalValue(cPath, 'RoyaltyBps', [], 9000, chain).catch(() => 0),
+    evalValue(cPath, 'ImageBaseURI', [], 9000, chain).catch(() => evalValue(cPath, 'AssetBaseURI', [], 9000, chain).catch(() => '')),
+    evalValue(cPath, 'MetadataBaseURI', [], 9000, chain).catch(() => ''), evalValue(cPath, 'MarketplaceFeeBps', [], 9000, chain).catch(() => 0),
+    evalValue(cPath, 'MarketplaceFeeSink', [], 9000, chain).catch(() => '')
   ]);
   const feeSink = cleanText(marketplaceFeeSink, 100);
   const feeSinkMatchesTreasury = !safeAddress(TREASURY) || feeSink.toLowerCase() === TREASURY.toLowerCase();
@@ -291,31 +324,37 @@ async function readCollection(pathValue) {
 // a user saves one through /api/collections/create or the on-chain registry reports one.
 const DEFAULT_COLLECTIONS = [];
 
-async function getCollections() {
+async function getCollections(chain = DEFAULT_CHAIN) {
   let onchainColls = [];
   let warning = '';
   let featuredCollectionPath = '';
   const persisted = await readStore().catch(() => ({ verifiedPaths: [], customCollections: [] }));
   const activeVerified = new Set([...verifiedPaths, ...(persisted.verifiedPaths || [])].map(toCollectionPath).filter(Boolean));
-  if (REGISTRY_PATH) {
+  if (chain.registry) {
     try {
-      const rowsValue = await evalValue(REGISTRY_PATH, 'ListCollections').catch((e) => { throw new Error(`Morrow registry query failed: ${e.message}`); });
+      const rowsValue = await evalValue(chain.registry, 'ListCollections', [], 9000, chain).catch((e) => { throw new Error(`Morrow registry query failed: ${e.message}`); });
       const paths = parseRecordLines(rowsValue).map(normalizeRegistryRow).filter(Boolean);
       onchainColls = await Promise.all(paths.map(async (c) => {
         try {
-          const dynamic = await readCollection(c.path);
-          return { ...c, ...dynamic, verified: activeVerified.has(c.path) };
-        } catch { return { ...c, verified: activeVerified.has(c.path) }; }
+          const dynamic = await readCollection(c.path, chain);
+          return { ...c, ...dynamic, chain: chain.id, verified: activeVerified.has(c.path) };
+        } catch { return { ...c, chain: chain.id, verified: activeVerified.has(c.path) }; }
       }));
-      const featuredRaw = await evalValue(REGISTRY_PATH, 'FeaturedCollection').catch(() => '');
+      const featuredRaw = await evalValue(chain.registry, 'FeaturedCollection', [], 9000, chain).catch(() => '');
       featuredCollectionPath = toCollectionPath(featuredRaw);
     } catch (e) {
       warning = cleanText(e.message, 200);
     }
+  } else if (chain.kind === 'cosmos') {
+    warning = 'Gnotbook collections are Gno realms and live on the Gno.land chains. AtomOne is read for wallet balances only.';
   }
   const mergedMap = new Map();
   for (const c of DEFAULT_COLLECTIONS) mergedMap.set(c.slug, { ...c });
-  for (const c of (persisted.customCollections || [])) mergedMap.set(c.slug, { ...(mergedMap.get(c.slug) || {}), ...c });
+  // A saved collection belongs to the chain it was created on.
+  for (const c of (persisted.customCollections || [])) {
+    if ((c.chain || DEFAULT_CHAIN.id) !== chain.id) continue;
+    mergedMap.set(c.slug, { ...(mergedMap.get(c.slug) || {}), ...c, chain: chain.id });
+  }
   for (const c of onchainColls) mergedMap.set(c.slug, { ...(mergedMap.get(c.slug) || {}), ...c });
   const collections = [...mergedMap.values()].map((c) => {
     const wl = (persisted.whitelists || {})[c.slug];
@@ -339,15 +378,15 @@ function parseOpenItems(value, collection) {
     };
   }).filter((item) => item && item.listed);
 }
-async function getMarket() {
-  const { collections, warning, featuredCollectionPath = '' } = await getCollections();
+async function getMarket(chain = DEFAULT_CHAIN) {
+  const { collections, warning, featuredCollectionPath = '' } = await getCollections(chain);
   const listingSets = await Promise.all(collections.map(async (c) => {
     try {
-      const raw = await evalValue(c.path, 'ListOpen').catch(() => '');
+      const raw = await evalValue(c.path, 'ListOpen', [], 9000, chain).catch(() => '');
       return parseOpenItems(raw, c);
     } catch { return []; }
   }));
-  return { ok: true, collections, listings: listingSets.flat().sort((a, b) => b.id - a.id), warning, registryPath: REGISTRY_PATH, featuredCollectionPath };
+  return { ok: true, collections, listings: listingSets.flat().sort((a, b) => b.id - a.id), warning, registryPath: chain.registry, featuredCollectionPath, chain: chain.id };
 }
 // The bank/balances endpoint answers with a bare "<amount><denom>" string on the
 // current public RPC (e.g. "283868ugnot"). Older nodes answered with an object.
@@ -376,9 +415,20 @@ function parseBalances(raw) {
   }
   return [];
 }
-async function readBalances(address) {
+// Gno.land speaks ABCI; AtomOne is Cosmos SDK and answers a REST balances route.
+async function readCosmosBalances(chain, address) {
+  const res = await fetch(`${chain.rpc}/cosmos/bank/v1beta1/balances/${encodeURIComponent(address)}`, {
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!res.ok) throw new Error(`${chain.label} balances request failed (${res.status}).`);
+  const data = await res.json().catch(() => ({}));
+  const list = Array.isArray(data?.balances) ? data.balances : [];
+  return list.map((b) => ({ denom: cleanText(b?.denom, 100), amount: String(b?.amount ?? '0') })).filter((b) => b.denom);
+}
+async function readBalances(address, chain = DEFAULT_CHAIN) {
+  if (chain.kind === 'cosmos') return readCosmosBalances(chain, address);
   if (!safeAddress(address)) throw new Error('Invalid Gno address.');
-  const result = await abciQuery(`bank/balances/${address}`);
+  const result = await abciQuery(`bank/balances/${address}`, '', 9000, chain);
   return parseBalances(result.data || '{}');
 }
 // Neon and other managed Postgres hand out a pooled URL with `channel_binding=require`,
@@ -571,11 +621,24 @@ app.get(['/api/health', '/api/healthz'], async (_req, res) => {
     persistenceMode: process.env.DATABASE_URL ? 'postgres' : 'file-store',
   });
 });
-app.get('/api/config', async (_req, res) => {
+app.get('/api/config', async (req, res) => {
+  const chain = chainFromRequest(req);
   let rpcHealthy = false; let latestHeight = null; let rpcError = '';
-  try { const status = await rpc('status', {}, 4000); rpcHealthy = !!status?.sync_info; latestHeight = status?.sync_info?.latest_block_height || null; }
+  try { const status = await rpc('status', {}, 4000, chain); rpcHealthy = !!status?.sync_info; latestHeight = status?.sync_info?.latest_block_height || null; }
   catch (e) { rpcError = cleanText(e.message, 180); }
-  const collectionsRead = await getCollections();
+  // Every network is probed so the interface can show what actually answers.
+  const chainHealth = await Promise.all(CHAINS.map(async (c) => {
+    if (c.id === chain.id) return { id: c.id, healthy: rpcHealthy, error: rpcError, height: latestHeight };
+    try {
+      if (c.kind === 'cosmos') {
+        const res = await fetch(`${c.rpc}/cosmos/base/tendermint/v1beta1/node_info`, { signal: AbortSignal.timeout(5000) });
+        return { id: c.id, healthy: res.ok, error: res.ok ? '' : `HTTP ${res.status}`, height: null };
+      }
+      const status = await rpc('status', {}, 4000, c);
+      return { id: c.id, healthy: !!status?.sync_info, error: '', height: status?.sync_info?.latest_block_height || null };
+    } catch (e) { return { id: c.id, healthy: false, error: cleanText(e.message, 120), height: null }; }
+  }));
+  const collectionsRead = await getCollections(chain);
   const registeredCollections = collectionsRead.collections;
   const featuredCollectionPath = collectionsRead.featuredCollectionPath || '';
   const moonboundRegistered = registeredCollections.find((c) => c.slug === 'moonbound') || null;
@@ -584,13 +647,13 @@ app.get('/api/config', async (_req, res) => {
   const imageBaseURI = moonboundRegistered?.imageBaseURI || MOONBOUND_IMAGE_BASE_URI || '';
   const metadataBaseURI = moonboundRegistered?.metadataBaseURI || MOONBOUND_METADATA_BASE_URI || '';
   const assetsConfigured = !!imageBaseURI && !!metadataBaseURI;
-  const registryConfigured = !!REGISTRY_PATH;
-  const networkWritesEnabled = isMainnet() ? MAINNET_TX_ENABLED : (CHAIN_ID === 'onyx-1' ? ONYX_TX_ENABLED : false);
-  const registryFeeSink = registryConfigured ? cleanText(await evalValue(REGISTRY_PATH, 'FeeSink').catch(() => ''), 100) : '';
-  const registryAdmin = registryConfigured ? cleanText(await evalValue(REGISTRY_PATH, 'Admin').catch(() => ''), 100) : '';
-  const moonboundMintsPerWallet = moonboundRegistered ? num(await evalValue(moonboundPath, 'PublicMintLimit').catch(() => 0)) : 0;
-  const registryLaunchFeeRaw = registryConfigured ? await evalValue(REGISTRY_PATH, 'LaunchFee').catch(() => null) : null;
-  const registryProtocolBpsRaw = registryConfigured ? await evalValue(REGISTRY_PATH, 'MarketplaceFeeBps').catch(() => null) : null;
+  const registryConfigured = !!chain.registry;
+  const networkWritesEnabled = chain.writes;
+  const registryFeeSink = registryConfigured ? cleanText(await evalValue(chain.registry, 'FeeSink', [], 9000, chain).catch(() => ''), 100) : '';
+  const registryAdmin = registryConfigured ? cleanText(await evalValue(chain.registry, 'Admin', [], 9000, chain).catch(() => ''), 100) : '';
+  const moonboundMintsPerWallet = moonboundRegistered ? num(await evalValue(moonboundPath, 'PublicMintLimit', [], 9000, chain).catch(() => 0)) : 0;
+  const registryLaunchFeeRaw = registryConfigured ? await evalValue(chain.registry, 'LaunchFee', [], 9000, chain).catch(() => null) : null;
+  const registryProtocolBpsRaw = registryConfigured ? await evalValue(chain.registry, 'MarketplaceFeeBps', [], 9000, chain).catch(() => null) : null;
   const registryLaunchFee = registryLaunchFeeRaw === null ? null : num(registryLaunchFeeRaw, -1);
   const registryProtocolBps = registryProtocolBpsRaw === null ? null : num(registryProtocolBpsRaw, -1);
   const registryTreasuryMatches = safeAddress(TREASURY) && safeAddress(registryFeeSink) && registryFeeSink.toLowerCase() === TREASURY.toLowerCase();
@@ -598,12 +661,13 @@ app.get('/api/config', async (_req, res) => {
   const registryCompatible = registryConfigured && registryTreasuryMatches && registryFeeModelMatches;
   const bootstrapEnabled = networkWritesEnabled && safeAddress(TREASURY);
   const transactionsEnabled = networkWritesEnabled;
-  const registryError = !networkWritesEnabled ? `Write operations are disabled for ${CHAIN_ID}; enable the appropriate network flag.` : '';
+  const registryError = !networkWritesEnabled ? `Write operations are disabled for ${chain.id}; enable the network flag for that chain.` : '';
   const moonboundLaunchEnabled = transactionsEnabled && !moonboundRegistered && !!MOONBOUND_IMAGE_BASE_URI && !!MOONBOUND_METADATA_BASE_URI;
   const onchainLaunchFee = registryLaunchFee ?? COLLECTION_SERVICE_FEE_UGNOT;
   res.json({
-    ok: true, product: 'Morrow Marketplace', chainId: CHAIN_ID, rpcUrl: RPC_URL, registryPath: REGISTRY_PATH, featuredCollectionPath,
-    treasuryConfigured: safeAddress(TREASURY), treasuryAddress: safeAddress(TREASURY) ? TREASURY : '',
+    ok: true, product: 'Morrow Marketplace', chainId: chain.id, chainLabel: chain.label, currency: chain.currency, rpcUrl: chain.rpc, registryPath: chain.registry, featuredCollectionPath,
+    chains: CHAINS.map((c) => ({ id: c.id, label: c.label, kind: c.kind, currency: c.currency, rpc: c.rpc, registryConfigured: !!c.registry, writesEnabled: c.writes, default: c.id === DEFAULT_CHAIN.id, health: chainHealth.find((h) => h.id === c.id) })),
+    treasuryConfigured: safeAddress(chain.treasury), treasuryAddress: safeAddress(chain.treasury) ? chain.treasury : '',
     marketplaceFeeBps: MARKETPLACE_FEE_BPS, collectionServiceFeeUgnot: onchainLaunchFee, launchFeeGnot: onchainLaunchFee / 1_000_000,
     tradingEnabled: transactionsEnabled, transactionsEnabled, bootstrapEnabled, registryCompatible, registryFeeModelMatches, registryTreasuryMatches,
     adminWallet: safeAddress(registryAdmin) ? registryAdmin : '',
@@ -631,9 +695,10 @@ app.get('/api/config', async (_req, res) => {
     registryConfigured, registryError
   });
 });
-app.get('/api/market', async (_req, res) => {
-  try { res.json(await getMarket()); }
-  catch (e) { res.json({ ok: false, collections: [], listings: [], warning: cleanText(e.message, 300), registryPath: REGISTRY_PATH }); }
+app.get('/api/market', async (req, res) => {
+  const chain = chainFromRequest(req);
+  try { res.json(await getMarket(chain)); }
+  catch (e) { res.json({ ok: false, collections: [], listings: [], warning: cleanText(e.message, 300), registryPath: chain.registry, chain: chain.id }); }
 });
 app.get('/api/collection-items', async (req, res) => {
   try {
@@ -897,34 +962,35 @@ app.get('/api/realm-read', async (req, res) => {
   } catch (e) { json(res, 502, { ok: false, error: cleanText(e.message, 240) }); }
 });
 app.get('/api/wallet/:address/balances', async (req, res) => {
-  try { const balances = await readBalances(req.params.address); res.json({ ok: true, balances, warning: '' }); }
-  catch (e) { res.json({ ok: true, balances: [], warning: cleanText(e.message, 220) }); }
+  const chain = chainFromRequest(req);
+  try { const balances = await readBalances(req.params.address, chain); res.json({ ok: true, balances, warning: '', chain: chain.id, currency: chain.currency }); }
+  catch (e) { res.json({ ok: true, balances: [], warning: cleanText(e.message, 220), chain: chain.id, currency: chain.currency }); }
 });
-async function getTokensForAddress(collection, address) {
+async function getTokensForAddress(collection, address, chain = DEFAULT_CHAIN) {
   const pkg = collection.path;
   const items = [];
   // Skip un-deployed local templates to prevent RPC query timeouts
-  if (pkg.startsWith('gno.land/r/morrow/') && !REGISTRY_PATH && pkg !== MOONBOUND_COLLECTION_PATH) {
+  if (pkg.startsWith('gno.land/r/morrow/') && !chain.registry && pkg !== MOONBOUND_COLLECTION_PATH) {
     return items;
   }
   try {
-    let balRaw = await evalValue(pkg, 'BalanceOf', [address], 3500).catch(() => null);
+    let balRaw = await evalValue(pkg, 'BalanceOf', [address], 3500, chain).catch(() => null);
     if (balRaw == null) {
-      balRaw = await evalValue(pkg, 'BalanceOf', [`address("${address}")`], 2000).catch(() => null);
+      balRaw = await evalValue(pkg, 'BalanceOf', [`address("${address}")`], 2000, chain).catch(() => null);
     }
     const bal = Number(balRaw || 0);
     if (bal > 0) {
       const maxTokens = Math.min(bal, 50);
       for (let i = 0; i < maxTokens; i++) {
-        let tidRaw = await evalValue(pkg, 'TokenOfOwnerByIndex', [address, i], 3500).catch(() => null);
-        if (tidRaw == null) tidRaw = await evalValue(pkg, 'TokenOfOwnerByIndex', [`address("${address}")`, i], 2000).catch(() => null);
+        let tidRaw = await evalValue(pkg, 'TokenOfOwnerByIndex', [address, i], 3500, chain).catch(() => null);
+        if (tidRaw == null) tidRaw = await evalValue(pkg, 'TokenOfOwnerByIndex', [`address("${address}")`, i], 2000, chain).catch(() => null);
         if (tidRaw == null) continue;
         const tokenId = String(tidRaw);
         // The realm's TokenURI takes the id as a string. Passing a bare 314 would be
         // evaluated as a number literal and the realm would answer with nothing.
         const tokenIdArg = `"${tokenId.replace(/[^\w.-]/g, '')}"`;
-        let tokenUri = await evalValue(pkg, 'TokenURI', [tokenIdArg], 3500).catch(() => null);
-        if (tokenUri == null) tokenUri = await evalValue(pkg, 'TokenURI', [tokenId], 2000).catch(() => null);
+        let tokenUri = await evalValue(pkg, 'TokenURI', [tokenIdArg], 3500, chain).catch(() => null);
+        if (tokenUri == null) tokenUri = await evalValue(pkg, 'TokenURI', [tokenId], 2000, chain).catch(() => null);
         let name = `${collection.name} #${tokenId}`;
         let image = collection.image || '';
         let description = collection.description || '';
@@ -996,10 +1062,15 @@ async function getTokensForAddress(collection, address) {
 }
 
 app.get('/api/portfolio/:address', async (req, res) => {
+  const chain = chainFromRequest(req);
   const address = String(req.params.address || '');
+  // Cosmos chains (AtomOne) carry balances, not Gno realms: there is nothing to scan.
+  if (chain.kind === 'cosmos') {
+    return res.json({ ok: true, collections: [], tokens: [], chain: chain.id, currency: chain.currency, note: 'AtomOne holdings are read as balances; Gnotbook collections are Gno realms on the Gno.land chains.' });
+  }
   if (!safeAddress(address)) return json(res, 400, { ok: false, error: 'Invalid Gno address.' });
   try {
-    const { collections } = await getCollections();
+    const { collections } = await getCollections(chain);
     const customRealm = toCollectionPath(req.query.customRealm || '');
     const scanList = [...collections];
     // Realms this server knows about but that are not (yet) in the public catalog:
@@ -1024,7 +1095,7 @@ app.get('/api/portfolio/:address', async (req, res) => {
     const tokens = []; const ownedCollections = [];
     const scanned = await Promise.all(scanList.slice(0, 40).map(async (collection) => {
       try {
-        const items = await getTokensForAddress(collection, address);
+        const items = await getTokensForAddress(collection, address, chain);
         return { collection, items };
       } catch {
         return { collection, items: [] };
@@ -1036,8 +1107,8 @@ app.get('/api/portfolio/:address', async (req, res) => {
         tokens.push(...items);
       }
     }
-    res.json({ ok: true, collections: ownedCollections, tokens });
-  } catch (e) { res.json({ ok: true, collections: [], tokens: [], warning: cleanText(e.message, 240) }); }
+    res.json({ ok: true, collections: ownedCollections, tokens, chain: chain.id, currency: chain.currency });
+  } catch (e) { res.json({ ok: true, collections: [], tokens: [], warning: cleanText(e.message, 240), chain: chain.id }); }
 });
 app.get('/api/points/:address', async (req, res) => {
   const address = String(req.params.address || '');

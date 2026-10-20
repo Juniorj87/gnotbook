@@ -148,7 +148,7 @@ const mustContain = [
   [app, "dueSend:isAdmin?'':", 'launch fee waiver in the launch transaction'],
   [app, 'function walletMintCapReached()', 'per-wallet mint cap gate in the client'],
   [app, 'if(walletMintCapReached())throw new Error', 'client refuses a mint past the capped limit'],
-  [server, "const moonboundMintsPerWallet = moonboundRegistered ? num(await evalValue(moonboundPath, 'PublicMintLimit').catch(() => 0)) : 0", 'per-wallet cap read from the chain, never hardcoded in the server'],
+  [server, "const moonboundMintsPerWallet = moonboundRegistered ? num(await evalValue(moonboundPath, 'PublicMintLimit', [], 9000, chain).catch(() => 0)) : 0", 'per-wallet cap read from the chain, never hardcoded in the server'],
   [server, 'mintsPerWallet: moonboundMintsPerWallet', 'per-wallet cap exposed to the client'],
   [server, "'PublicMintLimit', 'MintsByWallet'", 'per-wallet mint getters in the realm-read allowlist'],
   [server, 'octopinFile', 'Octopin server-side uploader'],
