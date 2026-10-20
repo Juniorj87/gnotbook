@@ -2,10 +2,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [html, app, css] = await Promise.all([
+const [html, app, css, server] = await Promise.all([
   readFile(new URL('../public/index.html', import.meta.url), 'utf8'),
   readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
   readFile(new URL('../public/styles.css', import.meta.url), 'utf8'),
+  readFile(new URL('../server.mjs', import.meta.url), 'utf8'),
 ]);
 
 test('desktop navigation exposes the requested marketplace sections', () => {
@@ -49,6 +50,21 @@ test('the quests page and the footer social links are reachable', () => {
   assert.match(html, /id="footerSocials"/);
   assert.match(app, /function renderRewards\(\)/);
   assert.match(app, /function renderFooterSocials\(/);
+});
+
+test('creators can pin their own artwork and hand over the CIDs', () => {
+  // The server can read a public gateway without holding a storage credential.
+  assert.match(server, /app\.post\('\/api\/ipfs\/verify'/);
+  assert.match(server, /function resolveCid\(/);
+  // The create form offers the self-service route with links to both providers.
+  assert.match(app, /app\.pinata\.cloud/);
+  assert.match(app, /octopin\.app/);
+  assert.match(app, /id="pinImageCid"/);
+  assert.match(app, /id="pinMetadataCid"/);
+  assert.match(app, /data-action="verify-cids"/);
+  // The server stores a creator-pinned collection with its IPFS bases.
+  assert.match(server, /imageCid/);
+  assert.match(server, /metadataBaseURI/);
 });
 
 test('the drawer menu toggles with scroll lock, backdrop and Escape close', () => {

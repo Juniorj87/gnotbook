@@ -790,6 +790,15 @@ app.post('/api/collections/create', writeLimiter, async (req, res) => {
     const slug = cleanText(req.body?.slug, 32).toLowerCase();
     const pkg = toCollectionPath(req.body?.path || '');
     const image = cleanText(req.body?.image, 500);
+    // Artwork the creator pinned themselves: no storage credential on this server is needed.
+    const imageCid = cleanCid(req.body?.imageCid);
+    const metadataCid = cleanCid(req.body?.metadataCid);
+    const imageBaseCid = cleanCid(req.body?.imageBaseCid);
+    for (const [label, value] of [['imageCid', imageCid], ['metadataCid', metadataCid], ['imageBaseCid', imageBaseCid]]) {
+      if (value && !isCid(value)) return json(res, 400, { ok: false, error: `The ${label} is not a valid CID (letters and digits only).` });
+    }
+    const readGateway = IPFS_READ_GATEWAYS()[0];
+    const pinnedImageUrl = imageCid ? `${readGateway}${imageCid}` : '';
     const maxSupply = Math.max(1, Math.min(1_000_000, Number(req.body?.maxSupply) || 1000));
     const mintPriceUgnot = Math.max(0, Number(req.body?.mintPriceUgnot) || 5_000_000);
     const royaltyBps = Math.max(0, Math.min(1000, Number(req.body?.royaltyBps) || 250));
@@ -818,8 +827,11 @@ app.post('/api/collections/create', writeLimiter, async (req, res) => {
     }
     const newColl = {
       slug, path: pkg || `gno.land/r/${creator || 'creator'}/${slug}`,
-      name, symbol, image: image,
-      cover: image,
+      name, symbol, image: pinnedImageUrl || image,
+      cover: pinnedImageUrl || image,
+      imageBaseURI: imageBaseCid ? `ipfs://${imageBaseCid}` : (imageCid ? `ipfs://${imageCid}` : ''),
+      metadataBaseURI: metadataCid ? `ipfs://${metadataCid}` : '',
+      pinnedBy: imageCid || metadataCid ? 'creator' : '',
       maxSupply, minted: 0, mintPriceUgnot: mintType === 'free' ? 0 : mintPriceUgnot, royaltyBps,
       creator: creator || TREASURY, verified: false, external: false,
       description: description || 'Community minted collection on Gnotbook.',
@@ -1070,6 +1082,65 @@ async function octopinFile(buffer, filename, mime, timeoutMs = 45_000) {
   }
   return { cid: body.data.cid, gatewayUrl: `${OCTOPIN_GATEWAY}${body.data.cid}` };
 }
+// Public IPFS gateways used to read a creator's own pinned files. Reading needs
+// no credential, so a creator can pin in their own Pinata/Octopin account and
+// hand over the CID instead of the server holding a storage key.
+const IPFS_READ_GATEWAYS = () => [
+  String(process.env.OCTOPIN_GATEWAY || 'https://gateway.octopin.app/ipfs/').replace(/\/$/, '') + '/',
+  String(process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud/ipfs/').replace(/\/$/, '') + '/',
+  'https://ipfs.io/ipfs/'
+];
+const isCid = value => /^[a-zA-Z0-9]{20,120}$/.test(String(value || '').trim());
+const cleanCid = value => String(value || '').trim().replace(/^ipfs:\/\//i, '');
+
+// Resolves a CID on the public gateways and reports what is behind it.
+// A creator may point at a folder ("bafy…") or at a file inside it ("bafy…/0001.json").
+async function resolveCid(cid, kind, subPath = '') {
+  for (const gateway of IPFS_READ_GATEWAYS()) {
+    const url = `${gateway}${cid}${subPath ? `/${subPath}` : ''}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'follow' });
+      if (!res.ok) continue;
+      const contentType = String(res.headers.get('content-type') || '');
+      const buffer = await res.arrayBuffer();
+      const text = new TextDecoder().decode(buffer.slice(0, 4096));
+      const looksJson = contentType.includes('json') || text.trim().startsWith('{');
+      if (looksJson) {
+        let meta = null;
+        try { meta = JSON.parse(text); } catch {}
+        if (!meta) continue;
+        return {
+          ok: true, kind: 'metadata', cid, path: subPath, url, gateway,
+          name: cleanText(meta.name, 120),
+          description: cleanText(meta.description, 400),
+          image: cleanText(meta.image, 500),
+          attributes: Array.isArray(meta.attributes) ? meta.attributes.length : 0
+        };
+      }
+      const looksHtml = contentType.includes('html') || text.trim().startsWith('<');
+      if (looksHtml) {
+        return {
+          ok: true, kind: 'directory', cid, path: subPath, url, gateway,
+          hint: 'This CID is a folder. Point at a file inside it, for example ' + cid + '/0001.json.'
+        };
+      }
+      return { ok: true, kind: 'image', cid, path: subPath, url, gateway, contentType, size: buffer.byteLength };
+    } catch { /* try the next gateway */ }
+  }
+  return null;
+}
+app.post('/api/ipfs/verify', writeLimiter, async (req, res) => {
+  const raw = cleanCid(req.body?.cid);
+  const [cid, ...rest] = raw.split('/').filter(Boolean);
+  const subPath = rest.join('/');
+  const kind = ['image', 'metadata', 'directory'].includes(req.body?.kind) ? req.body.kind : 'image';
+  if (!isCid(cid)) return json(res, 400, { ok: false, error: 'A CID is a long base58 string (letters and digits). Copy it without the ipfs:// prefix.' });
+  try {
+    const found = await resolveCid(cid, kind, subPath);
+    if (!found) return json(res, 404, { ok: false, error: 'This CID does not resolve on the public gateways yet. Pinning can take a moment — try again in a minute.' });
+    res.json(found);
+  } catch (e) { json(res, 502, { ok: false, error: cleanText(e.message, 200) }); }
+});
 app.post('/api/ipfs/image', writeLimiter, (req, res, next) => upload.single('file')(req, res, (e) => e ? next(e) : next()), async (req, res) => {
   try {
     if (!PINATA_JWT && !OCTOPIN_API_KEY) return json(res, 503, { ok: false, error: 'IPFS uploads are unavailable: the server has no pinning credential.' });

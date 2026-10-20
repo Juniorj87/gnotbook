@@ -63,21 +63,42 @@ Write operations are gated three times over:
 - **Founder reserve**: a fixed number of editions is minted to the public founder address at launch, for gas only.
   The count lives in the contract, not in a metadata flag.
 
-### 4. Allowlist (whitelist) handling
+### 4. Artwork and metadata — the creator pins it, the server never holds a key
+
+Artwork and metadata are pinned to IPFS (content-addressed, immutable). **The creator does the pinning**,
+in their own Pinata or Octopin account, and hands over the CIDs:
+
+- the create form and the item-mint form offer two routes — *"I pinned it myself"* (the default) and
+  *"Upload here"* for deployments that run their own pinning credential;
+- the self-service route links straight to [app.pinata.cloud](https://app.pinata.cloud/) and
+  [octopin.app](https://octopin.app/) with the exact steps, including the Octopin upload endpoint
+  (`POST https://upload.octopin.app/api/upload`) for scripted uploads;
+- `POST /api/ipfs/verify` resolves a CID on the public gateways (Octopin, Pinata, ipfs.io) and reports
+  what is behind it: a parsed metadata JSON, an image with its size, or a folder with a hint. Reading a
+  public gateway needs no credential;
+- a CID may point at a file inside a folder (`bafy…/0001.json`), which is how a creator references one
+  edition of a pinned collection;
+- the collection record then carries the creator's `imageBaseURI` and `metadataBaseURI`, and the on-chain
+  `Init` call receives exactly those bases.
+
+The server only ever *reads* what the creator pinned. It never receives a storage key, so a public
+deployment can host creators without spending the operator's storage quota.
+
+### 5. Allowlist (whitelist) handling
 
 A creator uploads a list of `g1…` addresses (TXT, CSV or JSON). The server validates the format, de-duplicates,
 counts them and stores them **server-side only**. The public API exposes the *count* and a boolean, never the
 addresses. The on-chain allowlist gate is marked in the UI as preparation-only until the collection realm
 supports allowlist proofs — the server does not pretend to enforce something the contract does not.
 
-### 5. Storage
+### 6. Storage
 
 Artwork and metadata are pinned to IPFS (Octopin or Pinata, configurable); the pinned CIDs and their
 checksums are verified before they are written into the collection metadata. The server's own store holds
 only small, non-custodial records (drafts, points, upload counters, allowlist counts) — it can be a local
 JSON file or Postgres via `DATABASE_URL`.
 
-### 6. Frontend
+### 7. Frontend
 
 A dependency-free single-page app: one HTML shell, one stylesheet, one JavaScript module. No build step, no
 framework, no bundler — the browser loads the files as they are, and the server serves them as static assets
@@ -87,7 +108,7 @@ refresh and a static host.
 The UI is described in [docs/DESIGN.md](docs/DESIGN.md); the system internals in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the chain-side rules in [docs/ON-CHAIN.md](docs/ON-CHAIN.md).
 
-### 7. Checks
+### 8. Checks
 
 - `npm test` — static analysis, a source preflight (asset counts, pinned CID checksums, contract invariants)
   and the unit/UI test suite.

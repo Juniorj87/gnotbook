@@ -803,6 +803,35 @@ function renderUpcoming(){
   <p class="note" style="margin-top:16px">Allowlist counts are verified by this server. The on-chain free-mint gate is preparation-only until a collection realm supports allowlist proofs.</p>`;
 }
 function clockIcon(){return '<span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>'}
+// Artwork mode: the server pins the file, or the creator pins it in their own account.
+function pinMode(){return document.querySelector('input[name="pinMode"]:checked')?.value||'self';}
+function applyPinMode(){
+  const mode=pinMode();
+  document.querySelectorAll('[data-pin-mode]').forEach(node=>{node.style.display=node.dataset.pinMode===mode?'':'none';});
+}
+function cidValues(){
+  return {
+    imageCid:($('#pinImageCid')?.value||'').trim().replace(/^ipfs:\/\//i,''),
+    metadataCid:($('#pinMetadataCid')?.value||'').trim().replace(/^ipfs:\/\//i,''),
+    imageBaseCid:($('#pinImageBaseCid')?.value||'').trim().replace(/^ipfs:\/\//i,'')
+  };
+}
+async function verifyCid(cid,kind){
+  return api('/api/ipfs/verify',{method:'POST',body:JSON.stringify({cid,kind})});
+}
+async function verifyCids(){
+  const out=$('#cidCheckResult');
+  if(!out)return;
+  const {imageCid,metadataCid}=cidValues();
+  if(!imageCid||!metadataCid){out.textContent='Both the artwork CID and the metadata CID are needed.';out.className='pin-result warn';return;}
+  out.textContent='Checking on the public gateway…';out.className='pin-result';
+  try{
+    const [img,meta]=await Promise.all([verifyCid(imageCid,'image'),verifyCid(metadataCid,'metadata')]);
+    const traits=Number(meta.attributes||0);
+    out.textContent=`Artwork resolved (${Math.max(1,Math.round(Number(img.size||0)/1024))} kB) · metadata “${meta.name||'unnamed'}”${traits?` · ${traits} traits`:''}`;
+    out.className='pin-result ok';
+  }catch(e){out.textContent=e.message||'That CID could not be resolved.';out.className='pin-result warn';}
+}
 function supplyLabel(c){const supply=Number(c.maxSupply||0);return supply?`${num(supply)} supply`:'supply open'}
 function renderUpcomingStrip(){
   const colls=(state.market.collections||[]).filter(c=>c.mintStartAt);
@@ -841,8 +870,8 @@ function renderCreate(){
   const transactionNote=state.config?.transactionsEnabled?`Gnotbook transactions are enabled on ${escapeHTML(state.config.chainId)}. Adena will show the registry, fee and network gas before approval.`:`Transactions are in read-only mode until the Gnotbook registry, treasury and explicit network-write setting are configured.`;
   const {fee,isAdmin,due}=computeLaunchDue();
   return `<div class="page-heading"><div><div class="eyebrow"><span class="eyedot"></span> Creator studio</div><h1>Make it real.</h1><p>Deploy your own Gno.land collection realm, pin artwork and metadata to IPFS, then mint. The collection registers in Gnotbook's independent registry; no third-party marketplace contract is required.</p></div><div class="heading-actions"><span class="status-chip ${canUpload?'good':'pending'}">${canUpload?'IPFS ready':'IPFS setup needed'}</span><span class="status-chip ${state.config?.transactionsEnabled?'good':'pending'}">${state.config?.transactionsEnabled?'Transactions enabled':'Read-only mode'}</span></div></div>
-  <div class="tabs-row"><button class="tab-btn ${active==='collection'?'active':''}" data-action="create-tab" data-value="collection">Create collection</button><button class="tab-btn ${active==='trust'?'active':''}" data-action="create-tab" data-value="trust">Trust & safety</button><button class="tab-btn" data-action="create-tab" data-value="calendar">Mint calendar</button></div>
-  ${active==='collection'?renderCollectionForm(transactionNote,canUpload,fee,isAdmin,due):active==='calendar'?renderMintCalendar():renderTrustForm()}`;
+  <div class="tabs-row"><button class="tab-btn ${active==='collection'?'active':''}" data-action="create-tab" data-value="collection">Create collection</button><button class="tab-btn ${active==='mint'?'active':''}" data-action="create-tab" data-value="mint">Mint an item</button><button class="tab-btn ${active==='trust'?'active':''}" data-action="create-tab" data-value="trust">Trust & safety</button><button class="tab-btn" data-action="create-tab" data-value="calendar">Mint calendar</button></div>
+  ${active==='collection'?renderCollectionForm(transactionNote,canUpload,fee,isAdmin,due):active==='mint'?renderMintForm(transactionNote,canUpload):active==='calendar'?renderMintCalendar():renderTrustForm()}`;
 }
 
 // The featured-collection launch block belongs with the collection on the homepage: it is an
@@ -859,7 +888,36 @@ function renderCollectionForm(transactionNote,canUpload,launchFeeGnot,isAdmin,du
   <div class="field"><label for="collectionNamespace">Your Gno.land namespace (wallet address)</label><input id="collectionNamespace" name="namespace" value="${walletAddr}" readonly placeholder="Connect Adena to fill your wallet address"><span class="helper">Required only for the on-chain launch — the connected wallet address becomes the realm namespace.</span></div>
   <div class="field"><label for="collectionDescription">Description</label><textarea id="collectionDescription" name="description" maxlength="1000" placeholder="What makes this collection special?"></textarea></div>
   ${state.lastDraft?`<div class="inline-info" id="draftSavedNote"><strong>✓ Draft “${escapeHTML(state.lastDraft.name)}” saved on this server${state.lastDraft.whitelistCount?` with ${num(state.lastDraft.whitelistCount)} whitelisted wallets`:''}.</strong> It is not deployed on-chain yet. <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn btn-dark btn-sm" data-route="upcoming">Open Upcoming mints →</button><button type="button" class="btn btn-outline btn-sm" data-action="launch-collection">Launch on-chain</button></div></div>`:''}
-  <label class="upload-drop" for="collectionCover"><span class="upload-icon">↥</span><span><strong id="coverLabel">Upload collection cover</strong><span>PNG, JPEG, WEBP or GIF · max ${Number(state.config?.maxUploadMB||15)} MB ${canUpload?'· pinned to public IPFS':'(stays local while IPFS is not configured)'}</span></span><span class="btn btn-outline upload-choose">Choose file</span><input id="collectionCover" name="cover" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+  <div><div class="tiny-label">01b / Artwork &amp; metadata on IPFS</div></div>
+  ${canUpload
+    ?`<div class="pin-choices">
+        <label class="pin-choice"><input type="radio" name="pinMode" value="self" checked><span><b>I pinned it myself</b><small>Pin in your own Pinata or Octopin account and paste the CIDs. The server never needs your key.</small></span></label>
+        <label class="pin-choice"><input type="radio" name="pinMode" value="server"><span><b>Upload here</b><small>The server pins your file to IPFS (${Number(state.config?.maxUploadMB||15)} MB max).</small></span></label>
+      </div>
+      <label class="upload-drop" data-pin-mode="server" for="collectionCover"><span class="upload-icon">↥</span><span><strong id="coverLabel">Upload collection cover</strong><span>PNG, JPEG, WEBP or GIF · max ${Number(state.config?.maxUploadMB||15)} MB · pinned to public IPFS</span></span><span class="btn btn-outline upload-choose">Choose file</span><input id="collectionCover" name="cover" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>`
+    :`<div class="pin-choices">
+        <label class="pin-choice"><input type="radio" name="pinMode" value="self" checked><span><b>I pinned it myself</b><small>Pin the artwork and metadata in your own IPFS account, then paste the CIDs here.</small></span></label>
+        <label class="pin-choice"><input type="radio" name="pinMode" value="server" disabled><span><b>Upload here</b><small>Unavailable: this server has no IPFS pinning credential. Ask the operator to add one.</small></span></label>
+      </div>`}
+  <div class="pin-self" data-pin-mode="self">
+    <div class="pin-guide">
+      <p class="note">Pin the files in your own account — Gnotbook never needs your storage key. Then paste the CIDs below.</p>
+      <ol class="pin-steps">
+        <li><b>Pinata</b> — <a href="https://app.pinata.cloud/" target="_blank" rel="noopener">app.pinata.cloud</a>: open <em>Files</em>, drag your image and your <code>metadata.json</code> in, and copy each file's CID (Files → the three dots next to a file → <em>Copy CID</em>).</li>
+        <li><b>Octopin</b> — <a href="https://octopin.app/" target="_blank" rel="noopener">octopin.app</a>: upload the same two files and copy their CIDs. For scripted uploads the API is <code>POST https://upload.octopin.app/api/upload</code>.</li>
+        <li>Come back here and paste the CIDs. Gnotbook checks them on the public gateway — no key, no upload through us.</li>
+      </ol>
+    </div>
+    <div class="field-grid">
+      <div class="field"><label for="pinImageCid">Artwork CID *</label><input id="pinImageCid" name="imageCid" placeholder="bafybei…  (the cover image)" autocomplete="off" spellcheck="false"><span class="helper">The pinned cover image. It becomes the collection banner and the edition artwork.</span></div>
+      <div class="field"><label for="pinMetadataCid">Metadata CID *</label><input id="pinMetadataCid" name="metadataCid" placeholder="bafybei…  (metadata.json)" autocomplete="off" spellcheck="false"><span class="helper">A JSON with <code>name</code>, <code>image</code> and optional <code>attributes</code>.</span></div>
+    </div>
+    <div class="field"><label for="pinImageBaseCid">Image base directory CID</label><input id="pinImageBaseCid" name="imageBaseCid" placeholder="optional — the folder that holds all editions" autocomplete="off" spellcheck="false"><span class="helper">Only needed when your editions live in a folder: the contract stores this base and reads <code>&lt;base&gt;/&lt;id&gt;.webp</code>.</span></div>
+    <div class="pin-actions">
+      <button type="button" class="btn btn-outline" data-action="verify-cids">Check the CIDs</button>
+      <span class="pin-result" id="cidCheckResult">Not checked yet.</span>
+    </div>
+  </div>
   <div><div class="tiny-label">02 / Mint schedule &amp; type</div></div>
   <div class="field-grid"><div class="field"><label for="mintStartDate">Mint start date</label><input id="mintStartDate" type="date"><span class="helper">Leave empty for “date TBA” — the mint shows as Draft.</span></div><div class="field"><label for="mintStartTime">Mint start time</label><input id="mintStartTime" type="time"></div></div>
   <div class="field"><label for="mintTimezone">Mint timezone</label><select id="mintTimezone">${tzOptions.map(([v,l])=>`<option value="${v}" ${v===tzDefault?'selected':''}>${l}</option>`).join('')}</select><span class="helper">The countdown on Upcoming mints is built from this moment, converted to real time.</span></div>
@@ -878,10 +936,10 @@ function renderCollectionForm(transactionNote,canUpload,launchFeeGnot,isAdmin,du
   <div class="field"><label for="maxSupply">Supply cap</label><input id="maxSupply" type="number" min="1" max="1000000" value="1000" required><span class="helper">Finite cap from 1 to 1,000,000 creator-minted items.</span></div>
   <div class="field"><label for="royalty">Creator royalty (%)</label><select id="royalty"><option value="2" selected>2% — recommended</option><option value="0">0% — no secondary royalty</option><option value="5">5%</option><option value="7.5">7.5%</option><option value="10">10% — protocol maximum</option></select><span class="helper">Applied by this collection's Buy contract. Royalty is separate from platform fees.</span></div>
   <label class="checkbox-row"><input id="confirmRights" type="checkbox" required><span>I own or have permission to publish this artwork and collection name. ${canUpload?'I understand that IPFS is public and immutable.':'I understand saved artwork stays on this server until IPFS is configured.'}</span></label>
-  <div class="inline-info">✓ <strong>Save collection</strong> stores a draft in this server's store — free, no wallet. ⬆ <strong>Launch on-chain</strong> pins artwork to IPFS and deploys the realm with Adena. ${escapeHTML(transactionNote)}</div>
+  <div class="inline-info">✓ <strong>Save collection</strong> stores a draft in this server's store — free, no wallet. ⬆ <strong>Launch on-chain</strong> publishes the artwork you pinned and deploys the realm with Adena. ${escapeHTML(transactionNote)}</div>
   <div style="display:flex;gap:12px;flex-wrap:wrap">
    <button class="btn btn-dark" type="button" id="saveDraftButton" data-action="save-draft">Save collection (draft)</button>
-   <button class="btn btn-outline" type="button" id="launchCollectionButton" data-action="launch-collection" ${(!canUpload||!state.wallet||!state.config?.transactionsEnabled||!state.config?.treasuryConfigured)?'disabled':`title="Deploy the realm on-chain with Adena — launch fee ${due.toLocaleString('en-US')} GNOT + gas"`}>Launch on-chain <span>↗</span></button>
+   <button class="btn btn-outline" type="button" id="launchCollectionButton" data-action="launch-collection" ${(!state.wallet||!state.config?.transactionsEnabled||!state.config?.treasuryConfigured)?'disabled':`title="Deploy the realm on-chain with Adena — launch fee ${due.toLocaleString('en-US')} GNOT + gas"`}>Launch on-chain <span>↗</span></button>
   </div>
   <div class="fee-card">
    <div class="eyebrow" style="color:var(--primary)">On-chain launch cost</div>
@@ -908,7 +966,25 @@ function renderMintForm(transactionNote,canUpload){
   const ownPaths=new Set((state.localCollections||[]).map(c=>c.path));
   const local=(state.localCollections||[]).map(c=>`<option value="${escapeHTML(c.path)}">${escapeHTML(c.name)} · Your recent launch</option>`).join('');
   const collections=(state.market.collections||[]).filter(c=>state.wallet && c.creator===state.wallet.address && !ownPaths.has(c.path)).map(c=>`<option value="${escapeHTML(c.path)}">${escapeHTML(c.name)} · creator wallet</option>`).join('');
-  return `<form id="mintForm" class="form-layout"><div class="panel"><div class="form-stack"><div><div class="tiny-label">02 / Create an item</div><h3 style="margin-top:5px">Mint an NFT</h3><p style="margin-top:5px">Upload the artwork to IPFS, pin standard metadata JSON, then ask Adena to approve the Mint transaction.</p></div><div class="field"><label for="mintCollection">Collection realm *</label><select id="mintCollection" required><option value="">Choose a collection you control</option>${local}${collections}</select><span class="helper">The collection must expose a compatible Mint(cur, name, imageURL, metadataURI) method. The Gnotbook template exposes this interface.</span></div><div class="field"><label for="mintName">NFT name *</label><input id="mintName" required maxlength="64" placeholder="e.g. Garden Guardian #01"></div><div class="field"><label for="mintDescription">Description</label><textarea id="mintDescription" maxlength="1000" placeholder="Describe this item…"></textarea></div><label class="upload-drop" for="mintImage"><span class="upload-icon">▧</span><span><strong id="mintFileLabel">Upload artwork</strong><span>PNG, JPEG, WEBP or GIF · stored on IPFS</span></span><span class="btn btn-outline upload-choose">Choose file</span><input id="mintImage" type="file" required accept="image/png,image/jpeg,image/webp,image/gif"></label><label class="checkbox-row"><input id="mintRights" type="checkbox" required><span>I have the rights to publish this artwork and its metadata publicly.</span></label><div class="inline-info">${escapeHTML(transactionNote)}</div><button class="btn btn-dark" type="submit" ${(!canUpload||!state.wallet||!state.config?.transactionsEnabled)?'disabled':''}>Pin metadata & mint with Adena ↗</button>${!canUpload?'<div class="inline-info danger-info">IPFS pinning is not configured on this server.</div>':''}</div></div><aside class="preview-card"><img class="preview-image" id="mintPreview" src="${ART.glass}" alt="NFT artwork preview... (truncated for brevity)">
+  return `<form id="mintForm" class="form-layout"><div class="panel"><div class="form-stack"><div><div class="tiny-label">02 / Create an item</div><h3 style="margin-top:5px">Mint an NFT</h3><p style="margin-top:5px">Upload the artwork to IPFS, pin standard metadata JSON, then ask Adena to approve the Mint transaction.</p></div><div class="field"><label for="mintCollection">Collection realm *</label><select id="mintCollection" required><option value="">Choose a collection you control</option>${local}${collections}</select><span class="helper">The collection must expose a compatible Mint(cur, name, imageURL, metadataURI) method. The Gnotbook template exposes this interface.</span></div><div class="field"><label for="mintName">NFT name *</label><input id="mintName" required maxlength="64" placeholder="e.g. Garden Guardian #01"></div><div class="field"><label for="mintDescription">Description</label><textarea id="mintDescription" maxlength="1000" placeholder="Describe this item…"></textarea></div><div class="pin-choices">
+  <label class="pin-choice"><input type="radio" name="pinMode" value="self" checked><span><b>I pinned it myself</b><small>Use your own Pinata or Octopin account and paste the CIDs.</small></span></label>
+  <label class="pin-choice"><input type="radio" name="pinMode" value="server" ${canUpload?'':'disabled'}><span><b>Upload here</b><small>The server pins the file to IPFS.</small></span></label>
+</div>
+<label class="upload-drop" for="mintImage" data-pin-mode="server"><span class="upload-icon">▧</span><span><strong id="mintFileLabel">Upload artwork</strong><span>PNG, JPEG, WEBP or GIF · stored on IPFS</span></span><span class="btn btn-outline upload-choose">Choose file</span><input id="mintImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+  <div class="pin-self" data-pin-mode="self">
+    <div class="pin-guide">
+      <p class="note">Pin the artwork and the metadata in your own account, then paste the CIDs. Gnotbook only checks that they resolve.</p>
+      <ol class="pin-steps">
+        <li><b>Pinata</b> — <a href="https://app.pinata.cloud/" target="_blank" rel="noopener">app.pinata.cloud</a> → <em>Files</em> → drag the image and <code>metadata.json</code> in → copy each CID.</li>
+        <li><b>Octopin</b> — <a href="https://octopin.app/" target="_blank" rel="noopener">octopin.app</a> → upload the same two files and copy their CIDs.</li>
+      </ol>
+    </div>
+    <div class="field-grid">
+      <div class="field"><label for="mintImageCid">Artwork CID *</label><input id="mintImageCid" placeholder="bafybei…" autocomplete="off" spellcheck="false"><span class="helper">The pinned image for this edition.</span></div>
+      <div class="field"><label for="mintMetadataCid">Metadata CID *</label><input id="mintMetadataCid" placeholder="bafybei…" autocomplete="off" spellcheck="false"><span class="helper">The pinned metadata JSON for this edition.</span></div>
+    </div>
+  </div>
+  <label class="checkbox-row"><input id="mintRights" type="checkbox" required><span>I have the rights to publish this artwork and its metadata publicly.</span></label><div class="inline-info">${escapeHTML(transactionNote)}</div><button class="btn btn-dark" type="submit" ${(!state.wallet||!state.config?.transactionsEnabled)?'disabled':''}>Mint with Adena ↗</button>${!canUpload?'<div class="inline-info danger-info">This server has no IPFS pinning credential — pin the files yourself and paste the CIDs above.</div>':''}</div></div><aside class="preview-card"><img class="preview-image" id="mintPreview" src="${ART.glass}" alt="NFT artwork preview... (truncated for brevity)">
 </aside></div></form>`;
 }
 function renderTrustForm(){
@@ -1026,6 +1102,8 @@ function wireDynamicInputs(){
   const nameMint=$('#mintName');if(nameMint)nameMint.addEventListener('input',()=>{$('#mintPreviewName').textContent=nameMint.value||'Your NFT'});
   const imgMint=$('#mintImage');if(imgMint)imgMint.addEventListener('change',()=>{const f=imgMint.files?.[0];if(!f)return;$('#mintFileLabel').textContent=f.name;$('#mintPreview').src=URL.createObjectURL(f)});
   const namespace=$('#collectionNamespace');if(namespace) namespace.value=state.wallet?.address||'';
+  $$('input[name="pinMode"]').forEach(r=>r.addEventListener('change',()=>applyPinMode()));
+  applyPinMode();
   const globalSearch=$('#globalSearch');if(globalSearch){globalSearch.value=state.query;globalSearch.oninput=e=>{state.query=e.target.value;const pos=e.target.selectionStart;if(['explore','market','collections'].includes(state.route)){render();const next=$('#globalSearch');if(next){next.focus();try{next.setSelectionRange(pos,pos)}catch{}}}};}
   const marketSearch=$('#marketSearch');if(marketSearch)marketSearch.addEventListener('input',()=>{const value=marketSearch.value;state.query=value;render();const next=$('#marketSearch');if(next){next.focus();next.setSelectionRange(value.length,value.length)}});
   const marketSort=$('#marketSort');if(marketSort)marketSort.addEventListener('change',()=>{state.marketSort=marketSort.value;render()});
@@ -1376,7 +1454,10 @@ async function contractSource(route,label,replacements){
 async function launchCollection(form){
   if(!state.wallet)throw new Error('Connect Adena before creating a collection.');
   if(!state.config?.transactionsEnabled)throw new Error('Collection deployment is paused while transactions are disabled for this network.');
-  if(!state.config?.pinningConfigured)throw new Error('IPFS pinning is not configured on this server.');
+  const selfMode=pinMode()==='self';
+  const {imageCid,metadataCid,imageBaseCid}=cidValues();
+  if(!selfMode&&!state.config?.pinningConfigured)throw new Error('This server has no IPFS pinning credential. Pin the files in your own account and choose “I pinned it myself”.');
+  if(selfMode&&(!imageCid||!metadataCid))throw new Error('Paste the artwork CID and the metadata CID you pinned.');
   const fd=new FormData(form);
   const name=String(fd.get('name')||'').trim();
   const symbol=String(fd.get('symbol')||'').trim().toUpperCase();
@@ -1391,7 +1472,7 @@ async function launchCollection(form){
   if(!slugSafe(slug))throw new Error('Slug must be lowercase, start with a letter and contain 2–11 letters/numbers.');
   if(!/^[a-zA-Z0-9._-]{2,80}$/.test(namespace)||namespace.includes('..'))throw new Error('Connect Adena so your realm namespace is filled in.');
   if(!Number.isInteger(maxSupply)||maxSupply<1||maxSupply>1_000_000)throw new Error('Supply must be from 1 to 1,000,000.');
-  if(!coverFile)throw new Error('Choose a cover image.');
+  if(!coverFile&&!selfMode)throw new Error('Choose a cover image.');
   if(!$('#confirmRights')?.checked)throw new Error('Confirm that you own or have permission to publish this artwork.');
   const protectedNames=['guardians','gno foundation','gno land','adena','gnoscan','morrow marketplace','opensea','rarible'];
   const normalizedName=name.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -1402,15 +1483,23 @@ async function launchCollection(form){
   if((state.market.collections||[]).some(c=>c.slug===slug))throw new Error('That realm slug is already registered. Choose another one.');
   const pkgPath=`gno.land/r/${namespace}/${slug}`;
   const button=$('#launchCollectionButton');
-  setBusy(true); if(button)button.textContent='Pinning cover and metadata to IPFS…';
+  setBusy(true); if(button)button.textContent=selfMode?'Verifying your CIDs…':'Pinning cover and metadata to IPFS…';
   try{
-    const cover=await uploadImage(coverFile,`${slug}-cover`);
-    const manifest=await pinMetadata(name,description,cover.uri,{attributes:[{trait_type:'Network',value:state.config.chainId}]});
+    let cover,manifest;
+    if(selfMode){
+      // The creator's own pin is the source of truth; the server only checks that it resolves.
+      const [img,meta]=await Promise.all([verifyCid(imageCid,'image'),verifyCid(metadataCid,'metadata')]);
+      cover={uri:`ipfs://${imageCid}`,gatewayUrl:img.url};
+      manifest={uri:`ipfs://${metadataCid}`,name:meta.name||''};
+    }else{
+      cover=await uploadImage(coverFile,`${slug}-cover`);
+      manifest=await pinMetadata(name,description,cover.uri,{attributes:[{trait_type:'Network',value:state.config.chainId}]});
+    }
     const source=await contractSource('/api/contracts/collection-template','collection contract',{'__PACKAGE__':slug,'__REGISTRY_PATH__':String(state.config.registryPath||'')});
     const {due,dueSend}=computeLaunchDue();
     const messages=[
       {type:'/vm.m_addpkg',value:{creator:state.wallet.address,deposit:'1ugnot',package:{name:slug,path:pkgPath,files:[{name:`${slug}.gno`,body:source}]}}},
-      transactionMessage(pkgPath,'Init',[name,symbol,cover.gatewayUrl,manifest.uri,String(maxSupply),'0',String(royaltyBps),'','','','0'],dueSend)
+      transactionMessage(pkgPath,'Init',[name,symbol,cover.gatewayUrl,manifest.uri,String(maxSupply),'0',String(royaltyBps),imageBaseCid?`ipfs://${imageBaseCid}`:'',metadataCid?`ipfs://${metadataCid}`:'','0'],dueSend)
     ];
     if(button)button.textContent='Waiting for Adena approval…';
     const result=await sendTx(messages,`Gnotbook collection launch — package, IPFS metadata and ${due?`the fixed ${due.toLocaleString('en-US')} GNOT launch fee`:'no launch fee: the registry admin wallet launches free'}`);
@@ -1495,7 +1584,7 @@ async function saveDraftCollection(){
   if(!$('#confirmRights')?.checked)throw new Error('Confirm that you own or have permission to publish this artwork.');
   setBusy(true);
   try{
-    const {collection,whitelist}=await api('/api/collections/create',{method:'POST',body:JSON.stringify({name,symbol,slug,description,mintType,mintPriceUgnot,maxSupply,royaltyBps,website,mintStartAt,creator:state.wallet?.address||'',whitelistText:wl?wl.raw:undefined})});
+    const {collection,whitelist}=await api('/api/collections/create',{method:'POST',body:JSON.stringify({name,symbol,slug,description,mintType,mintPriceUgnot,maxSupply,royaltyBps,website,mintStartAt,creator:state.wallet?.address||'',whitelistText:wl?wl.raw:undefined,imageCid:cidValues().imageCid,metadataCid:cidValues().metadataCid,imageBaseCid:cidValues().imageBaseCid})});
     state.lastDraft={name,slug,whitelistCount:whitelist?.count||0,at:Date.now()};
     toast(`Collection “${collection.name||name}” saved on the server${whitelist?.count?` — allowlist ready (${whitelist.count} wallets)`:''}. It shows in the catalog and Upcoming mints now.`,'ok',9000);
     // Keep the URL in sync with the route, otherwise a refresh lands on the form again.
@@ -1513,13 +1602,27 @@ async function mintNFT(form){
   const name=($('#mintName')?.value||'').trim();
   const desc=($('#mintDescription')?.value||'').trim();
   const file=$('#mintImage')?.files?.[0];
-  if(!pkg||!name||!file)throw new Error('Choose a collection, a name and an image.');
+  const selfMode=pinMode()==='self';
+  const mintImageCid=($('#mintImageCid')?.value||'').trim().replace(/^ipfs:\/\//i,'');
+  const mintMetaCid=($('#mintMetadataCid')?.value||'').trim().replace(/^ipfs:\/\//i,'');
+  if(!pkg||!name)throw new Error('Choose a collection and a name.');
+  if(selfMode&&(!mintImageCid||!mintMetaCid))throw new Error('Paste the artwork CID and the metadata CID you pinned.');
+  if(!selfMode&&!file)throw new Error('Choose an image to upload.');
   if(!$('#mintRights')?.checked)throw new Error('Confirm that you have the rights to publish this artwork.');
   setBusy(true);
   try{
-    const image=await uploadImage(file,`${name.replace(/[^a-zA-Z0-9-_]/g,'-')}-artwork`);
-    const metadata=await pinMetadata(name,desc,image.uri);
-    const result=await sendTx([transactionMessage(pkg,'Mint',[name,image.gatewayUrl,metadata.uri])],`Gnotbook mint: ${name}`);
+    let imageUrl,metadataUri;
+    if(selfMode){
+      const [img,meta]=await Promise.all([verifyCid(mintImageCid,'image'),verifyCid(mintMetaCid,'metadata')]);
+      imageUrl=img.url;
+      metadataUri=`ipfs://${mintMetaCid}`;
+    }else{
+      const image=await uploadImage(file,`${name.replace(/[^a-zA-Z0-9-_]/g,'-')}-artwork`);
+      const metadata=await pinMetadata(name,desc,image.uri);
+      imageUrl=image.gatewayUrl;
+      metadataUri=metadata.uri;
+    }
+    const result=await sendTx([transactionMessage(pkg,'Mint',[name,imageUrl,metadataUri])],`Gnotbook mint: ${name}`);
     toast('Mint submitted to Adena. The item appears after the transaction confirms.');
     if(result.hash)verifyPoints(result.hash);
     await refreshMarket(); await refreshWalletData(); render();
@@ -1624,6 +1727,7 @@ document.addEventListener('click',async event=>{
         case 'hero-next':{heroSlide(1);return}
         case 'hero-goto':{const t=$('#heroTrack');if(!t)return;sliderIdx=Number(action.dataset.value)||0;t.style.transform=`translateX(-${sliderIdx*100}%)`;$$('.hero-dot').forEach((d,i)=>d.classList.toggle('on',i===sliderIdx));return}
         case 'settings-tab':{state.activeSettingsTab=action.dataset.value||'profile';render();return}
+        case 'verify-cids':{await verifyCids();return}
         case 'upcoming-filter':{state.upcomingFilter=action.dataset.value||'all';render();return}
         case 'upcoming-sort':{state.upcomingSort=action.dataset.value||'time-asc';render();return}
         case 'portfolio-tab':{state.activePortfolioTab=action.dataset.value||'nfts';render();return}
