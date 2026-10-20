@@ -27,7 +27,7 @@
 
 ## On-chain safety
 
-- Writes disabled unless `GNOLAND_*_TRADING_ENABLED=true` and the registry's `FeeSink()` matches `MORROW_TREASURY_ADDRESS` and `LaunchFee()==2_000_000_000` and `MarketplaceFeeBps()==250`.
+- Writes disabled unless `GNOLAND_*_TRADING_ENABLED=true` and the registry's `FeeSink()` matches `MORROW_TREASURY_ADDRESS` and `LaunchFee()==250_000_000` and `MarketplaceFeeBps()==250`.
 - Fee is settled inside the collection realm's `Buy`; no separate UI fee transaction.
 - `verifiedPaths` (env + store) gates whether a collection is marked verified; unverified collections block purchases in the UI.
 

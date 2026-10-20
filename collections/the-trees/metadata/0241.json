@@ -1,0 +1,38 @@
+{
+  "name": "THE TREES #0241",
+  "description": "The Trees is a collection of ancient digital forest spirits, bark masks, leaves and bioluminescent growth. Edition #0241 of 333. Utility is not promised unless separately announced by the collection creator.",
+  "image": "ipfs://PENDING_IMAGE_CID/0241.webp",
+  "external_url": "https://gno.land/",
+  "attributes": [
+    {
+      "trait_type": "Spirit",
+      "value": "Moon Pine"
+    },
+    {
+      "trait_type": "Eyes / Core",
+      "value": "Biolume Bark"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Overgrown"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Common"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0241 / 333"
+    }
+  ],
+  "properties": {
+    "edition": 241,
+    "max_supply": 333,
+    "symbol": "TREES",
+    "mint_price_gnot": 5,
+    "founder_reserve": false,
+    "mint_policy": "public-mint",
+    "image_sha256": "ef594f67c11e8c382df80e395f031995df3fa75bfdcb0b641b4b4a7067109eb2",
+    "schema": "morrow-collection-v1"
+  }
+}

@@ -1,109 +1,129 @@
-# Morrow Marketplace — Gno.land
+# Gnotbook — NFT marketplace for Gno.land
 
-Morrow is an independent NFT marketplace for Gno.land. It has its own on-chain collection registry and collection template; it does **not** depend on another marketplace's registry or fee system. The web app provides collection discovery, collection pages, wallet-connected minting and escrow trading, IPFS pinning, basic portfolio/reward views, and a protected moderation desk.
+Gnotbook is an independent marketplace and launchpad for NFT collections on the Gno.land chain. It ships
+with its own on-chain registry and collection template, wallet-signed Adena transactions, IPFS-pinned
+artwork and a moderation desk. It does not depend on another marketplace's registry or fee system.
 
-## Economic rules in this build
+The public brand is **Gnotbook**; the on-chain contracts and the treasury keep the **Morrow** name.
 
-| Action | Rule | Enforcement |
-|---|---|---|
-| Launch a Morrow collection | **2,000 GNOT once**, plus normal network gas | Hard-coded in the Morrow registry contract; its `LaunchFee()` is checked during Init |
-| Moonbound Keepers primary mint | **575 GNOT** each, supply capped at **1,111** | Fixed in the deployed collection contract; sequential token IDs prevent duplicate edition IDs |
-| Secondary sale | Buyer pays seller ask **plus 2.5% Morrow fee**, plus normal network gas | `Buy` checks the exact incoming amount and routes the protocol fee to the registry's configured treasury |
-| Creator royalty | Set at collection deployment; Moonbound defaults to 2% | Enforced by the collection contract and paid from the seller's ask (not taken from the Morrow fee) |
-| Guardians Family | Link to the official page only | No fake in-market mint: the official page must provide a live/verified contract before deeper integration |
+---
 
-GNOT amounts in code use `ugnot`, with 1 GNOT = 1,000,000 ugnot. A displayed protocol fee is separate from normal network gas. Marketplace purchases are disabled for collections unless their on-chain `MarketplaceFeeBps()` equals 250 and their `MarketplaceFeeSink()` matches the configured treasury. Existing third-party collection contracts are not silently treated as compatible.
+## What it does
 
-## Included Moonbound Keepers assets
+| Surface | What it is for |
+|---|---|
+| **Explore** | Hero slider of live collections, the next mints on the schedule, the creator shelf. |
+| **Upcoming Mints** | Every collection with a mint start time, with a live countdown computed from real time. |
+| **Collections** | The public catalog of registered collections. |
+| **Market** | Live asks read from each collection realm, plus a curated list of chains the server surfaces. |
+| **Portfolio** | The connected wallet's native balance, its tokens in known realms, and its own collections. |
+| **Creator studio** | Save a collection draft server-side, then optionally deploy its realm on-chain. |
+| **Quests & points** | Reputation earned from confirmed on-chain actions. |
+| **Settings** | Profile, wallet and the live server configuration. |
 
-`nft-collection/images/` contains 1,111 distinct WebP files (`0001.webp`–`1111.webp`); `nft-collection/metadata/` contains the corresponding numbered JSON files (`0001.json`–`1111.json`). The metadata contains character/realm/rarity-style traits and a future-utility disclaimer. Images and metadata are local assets until you run the IPFS pinning step. No CID is invented or bundled as if it were already pinned.
+## How it works
 
-## Requirements
+### 1. Read path — the server is a reader, not a keeper
 
-- Node.js 20 or newer
-- Adena wallet extension, configured to the same network as `.env`
-- A Pinata API JWT with pinning permissions for the collection asset upload
-- A public Gno address for `MORROW_TREASURY_ADDRESS`
-- GNOT for transaction fees; launching Moonbound also requires exactly 2,000 GNOT plus network gas
+The backend never holds keys and never custodies an NFT. Everything a visitor sees is read from the chain
+or from a small server-owned store:
 
-## Install and start (Windows)
+- **Catalog** — the union of three sources: the server's own store (drafts saved by creators), the
+  on-chain registry (`ListCollections` on the registry realm) and the paths the moderation team has verified.
+- **Balances** — `bank/balances/<address>` over ABCI. The public RPC answers with a bare
+  `"<amount><denom>"` string, so the response is normalised in `parseBalances()` before it reaches the UI.
+- **Holdings** — for every realm the server knows about (the pinned collection, the external projects and
+  the public catalog) it reads `BalanceOf` and walks `TokenOfOwnerByIndex`, then resolves `TokenURI` into
+  metadata. Token ids are passed as **quoted strings**: the realm signature is `TokenURI(id string)`, and a
+  bare `TokenURI(314)` is a number literal that the realm silently ignores.
+- **Listings** — `ListOpen()` on each collection realm, parsed from the realm's own record format.
+- **Supply, royalties, fees** — read from the contracts, never estimated.
 
-1. Extract the ZIP into a writable folder.
-2. Copy `.env.example` to `.env` (the `run-morrow.bat` launcher can create the copy on first run).
-3. Open PowerShell in the project folder and run:
+### 2. Write path — the wallet signs, the server never does
 
-   ```powershell
-   npm install
-   npm test
-   npm start
-   ```
+The browser talks to Adena (Gno.land) or Keplr (AtomOne) directly. The server only builds the unsigned
+transaction messages; the wallet signs them and the network confirms them. A private key or seed phrase is
+never requested, transmitted or stored.
 
-4. Open `http://127.0.0.1:4173`. The app is deliberately **read-only by default** until writes have been explicitly enabled in `.env` and the on-chain registry is configured.
+Write operations are gated three times over:
 
-For the one-click Windows launcher, double-click `run-morrow.bat`. For Linux/macOS, run `bash run-morrow.sh`.
+- a network flag (`GNOLAND_MAINNET_TRADING_ENABLED` / `GNOLAND_ONYX_TRANSACTIONS_ENABLED`),
+- a configured treasury and registry,
+- the registry's own fee model, which the server verifies before it trusts the registry.
 
-## Deployment sequence
+### 3. The registry and the fee model
 
-### 1. Configure the public treasury and network
+- **Launch fee**: 5 GNOT per on-chain collection deploy, settled to the fee sink inside the registry contract.
+- **Secondary sale**: the buyer pays the ask **plus 2.5%**, and the contract splits seller, royalty and the
+  platform fee in the same transaction. The server rejects any registry whose fee model does not match.
+- **Creator royalty**: set at deployment (2% by default), paid by the seller side, capped at 10%.
+- **Founder reserve**: a fixed number of editions is minted to the public founder address at launch, for gas only.
+  The count lives in the contract, not in a metadata flag.
 
-Set `MORROW_TREASURY_ADDRESS` to a public Gno address. Never place a seed phrase, private key, or wallet password in `.env`. The default network is Gno.land mainnet (`gnoland-1`, `https://rpc.gno.land:443`). Write operations are disabled by default. After reviewing source and intended network, explicitly set `GNOLAND_MAINNET_TRADING_ENABLED=true` for mainnet or `GNOLAND_ONYX_TRADING_ENABLED=true` for Onyx (and switch both the RPC URL and chain ID to Onyx if you are testing there).
+### 4. Allowlist (whitelist) handling
 
-### 2. Pin Moonbound assets to IPFS
+A creator uploads a list of `g1…` addresses (TXT, CSV or JSON). The server validates the format, de-duplicates,
+counts them and stores them **server-side only**. The public API exposes the *count* and a boolean, never the
+addresses. The on-chain allowlist gate is marked in the UI as preparation-only until the collection realm
+supports allowlist proofs — the server does not pretend to enforce something the contract does not.
 
-Set `PINATA_JWT`, then run:
+### 5. Storage
 
-```powershell
-npm run pin:moonbound
+Artwork and metadata are pinned to IPFS (Octopin or Pinata, configurable); the pinned CIDs and their
+checksums are verified before they are written into the collection metadata. The server's own store holds
+only small, non-custodial records (drafts, points, upload counters, allowlist counts) — it can be a local
+JSON file or Postgres via `DATABASE_URL`.
+
+### 6. Frontend
+
+A dependency-free single-page app: one HTML shell, one stylesheet, one JavaScript module. No build step, no
+framework, no bundler — the browser loads the files as they are, and the server serves them as static assets
+with ETag caching. Routing is hash-based (`#explore`, `#collection?path=…`), so every deep link survives a
+refresh and a static host.
+
+The UI is described in [docs/DESIGN.md](docs/DESIGN.md); the system internals in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the chain-side rules in [docs/ON-CHAIN.md](docs/ON-CHAIN.md).
+
+### 7. Checks
+
+- `npm test` — static analysis, a source preflight (asset counts, pinned CID checksums, contract invariants)
+  and the unit/UI test suite.
+- `npm run preflight` — the source preflight on its own.
+- The design work is reviewed against a written contract; the rendered evidence lives in
+  [`docs/design-review/`](docs/design-review/) together with the record that the design skill's checker validates.
+
+## Repository layout
+
+```
+server.mjs              Express API, chain reader, store, wallet-message builder, moderation desk
+public/                 Frontend: index.html (shell), app.js (SPA), styles.css (design system)
+contracts/              Gno contracts: registry and collection template
+nft-collection/         Pinned collection images and metadata
+collections/            Additional collection assets served statically
+data/                   Store (git-ignored) + demo-store.json for UI review only
+scripts/                Preflight, pinning, contract helpers, release packaging
+tests/                  Unit, API and UI-marker tests
+docs/                   Architecture, design system, on-chain model, design-review evidence
+vercel.json             Serverless deployment descriptor
 ```
 
-This pins 1,111 images and 1,111 metadata entries and rewrites each metadata image URI to the resulting image-directory CID before pinning the metadata directory. Copy the two emitted directory URIs into `.env`:
+## Deployment
 
-```dotenv
-MOONBOUND_IMAGE_BASE_URI=ipfs://YOUR_IMAGE_DIRECTORY_CID
-MOONBOUND_METADATA_BASE_URI=ipfs://YOUR_METADATA_DIRECTORY_CID
-```
+`vercel.json` builds `server.mjs` as a Node serverless function and routes every request to it; the
+frontend is served from the same process as static assets.
 
-Restart the server after changing `.env`. The script only uploads assets; it does not deploy contracts or mint NFTs. It writes `nft-collection/PIN_RESULTS.txt` and `nft-collection/pinned-manifest.json` locally; these run-specific CID files are not included in source control.
+Two things matter on a serverless host:
 
-### 3. Deploy the Morrow registry
+- **The store needs a writable target.** The local filesystem is read-only there, so `DATABASE_URL`
+  (Postgres) is the way to persist collections. Without it the catalog stays empty and collection creation
+  returns an explicit error instead of failing silently.
+- **Secrets stay in the project settings, never in git.** `.env` is ignored; the deployment takes the same
+  variables through the platform's environment configuration.
 
-Connect Adena to the same network as `.env`, go to **Creator Studio**, and use **Deploy Morrow Registry**. Review the package path, public fee-sink address and gas in Adena before signing. After the deployment transaction confirms, copy the actual realm path, for example `gno.land/r/<your-address>/morrowmarket`, into `MORROW_REGISTRY_PATH` in `.env`, restart the server, and reload the site.
+## Limits, stated plainly
 
-The backend verifies that the registry's on-chain `FeeSink()` exactly matches `MORROW_TREASURY_ADDRESS` before enabling fee-bearing transactions. If the paths or addresses mismatch, transactions remain blocked.
-
-### 4. Launch Moonbound Keepers
-
-In **Creator Studio → Featured Launch**, confirm the 2 IPFS directory URIs and click **Launch Moonbound Keepers**. The launch is a permanent on-chain action, not a preview. Adena must show the launch transaction and payment of exactly 2,000 GNOT plus network gas. The collection is fixed to:
-
-- 1,111 editions, sequentially numbered `#0001` through `#1111`;
-- primary mint price 575 GNOT per edition;
-- 2% creator royalty;
-- each edition ID may be minted once only.
-
-Do not retry a transaction merely because the page is slow. Check the transaction hash and registry on Gno.land first. A successful wallet popup alone is not a claim that the chain confirmed it.
-
-### 5. Verify collection and test a full lifecycle
-
-Use `/admin` with `MORROW_ADMIN_TOKEN` to review the realm and mark it as verified only after checking the published source, creator, cover, metadata and contract economics. Verification is a moderation label, not a cryptographic guarantee. Test with low-risk amounts on a supported test network first. Before accepting a live listing, confirm that the item's collection is reviewed, its on-chain fee interface returns exactly 250 basis points and the on-chain fee sink matches the server treasury. Then test list → buy → owner change → cancel/withdraw where applicable, and inspect every confirmed transaction on the explorer.
-
-## Guardians Family
-
-Morrow provides a link to `https://guardians.family/`, the official project site. It does not claim to mint their NFTs inside Morrow, import an unverified contract, or present the official mint as an enabled on-chain flow unless the project's contract is publicly connected and independently verified. Check the official page and transaction details before paying; the status can change.
-
-## API and operations
-
-- `GET /healthz` — process health
-- `GET /api/config` — safe public configuration and current RPC/registry status; no secrets
-- `GET /api/market` — registered collections, fee compatibility flags, active listings and featured collection path
-- `GET /api/collection-items?pkg=<realm>&offset=0&limit=24` — paginated items
-- `GET /api/realm-read?pkg=<realm>&func=<read-only-function>` — bounded public realm read
-- `POST /api/ipfs/image` / `POST /api/ipfs/metadata` — IPFS pinning via server-side Pinata token
-- `/admin` — protected reports and manual verification
-
-PostgreSQL is optional. With `DATABASE_URL` blank, reports, moderation and reward state use `data/store.json`. For multi-instance production, use managed PostgreSQL and enable backups. Put the app behind HTTPS, rotate admin tokens, rate-limit uploads, and never expose `PINATA_JWT` or `MORROW_ADMIN_TOKEN` to frontend code.
-
-## Checks and known boundaries
-
-Run `npm test` before every package/deployment. It performs JavaScript syntax checks plus a source/asset preflight (counts the image/metadata pairs, parses JSON, checks image signatures, hashes images, checks fee constants and confirms obsolete third-party dependencies are absent). The preflight does **not** compile Gno or replace an independent smart-contract audit.
-
-The Gno compiler/runtime and a funded Adena wallet are not included in this package execution environment. Therefore this deliverable does not claim the included Gno source has been compiler-verified, deployed, live-minted, or tested end-to-end on-chain. Before mainnet funds are enabled, compile and simulate both `contracts/registry/morrowmarket.gno` and the generated `contracts/templates/morrow-collection.gno` using the current official Gno toolchain, review the generated package code, deploy/test on Onyx, and complete an independent smart-contract security review. Do not accept real funds until those checks pass.
+- The on-chain allowlist gate is not implemented — the UI says so.
+- IPFS pinning needs a storage key; without it, artwork stays on the server.
+- Transactions stay disabled until the registry, treasury and network flag are configured.
+- The public catalog starts empty on purpose. `data/demo-store.json` holds four fictional collections
+  (fake addresses) used only for UI review.

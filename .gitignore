@@ -2,6 +2,10 @@ node_modules/
 .env
 .env.*
 !.env.example
+# Wallet keys never enter git or a release archive.
+приватник*
+private-key*
+*.key
 data/store.json
 *.log
 .DS_Store
@@ -10,3 +14,9 @@ nft-collection/PIN_RESULTS.txt
 *.zip
 morrow-marketplace-release.zip
 NFTMARKET.zip
+# Local verification screenshots (not part of the app)
+shots/
+# Scratch space for local audits and probes
+.tmp/
+morrow-temp/
+.freebuff/

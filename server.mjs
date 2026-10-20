@@ -1,4 +1,4 @@
-import 'dotenv/config';
+﻿import 'dotenv/config';
 import express from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -14,23 +14,34 @@ const PORT = Number(process.env.PORT || 4173);
 const CHAIN_ID = process.env.GNOLAND_CHAIN_ID || 'gnoland-1';
 const RPC_URL = (process.env.GNOLAND_RPC_URL || 'https://rpc.gno.land:443').replace(/\/$/, '');
 const REGISTRY_PATH = cleanPkgPath(process.env.MORROW_REGISTRY_PATH || '');
-const TREASURY = String(process.env.MORROW_TREASURY_ADDRESS || '').trim();
+// Public address only. The default is Morrow's published treasury so a fresh clone works without extra setup.
+const TREASURY = String(process.env.MORROW_TREASURY_ADDRESS || 'g1u5mxwvz9hueavyjx2kpz88427rl6vgrkyu6328').trim();
+const FOUNDER_ADDRESS = String(process.env.MORROW_FOUNDER_ADDRESS || '').trim();
+// Founder reserve is minted at Init to the explicitly configured founder wallet for network gas only.
+const FOUNDER_RESERVE = intEnv('MORROW_FOUNDER_RESERVE', 333, 0, 333);
 const MARKETPLACE_FEE_BPS = intEnv('MARKETPLACE_FEE_BPS', 250, 250, 250);
-const COLLECTION_SERVICE_FEE_UGNOT = 2_000_000_000; // Fixed in the registry contract: 2,000 GNOT.
+const COLLECTION_SERVICE_FEE_UGNOT = 5_000_000; // Fixed in the registry contract: 5 GNOT.
 const MAINNET_TX_ENABLED = /^(1|true|yes)$/i.test(process.env.GNOLAND_MAINNET_TRADING_ENABLED || 'false');
 const ONYX_TX_ENABLED = /^(1|true|yes)$/i.test(process.env.GNOLAND_ONYX_TRADING_ENABLED || 'false');
 const PINATA_JWT = String(process.env.PINATA_JWT || '').trim();
 const PINATA_GATEWAY = normalizeGateway(process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud/ipfs/');
+const OCTOPIN_API_KEY = String(process.env.OCTOPIN_API_KEY || '').trim();
+const OCTOPIN_GATEWAY = normalizeGateway(process.env.OCTOPIN_GATEWAY || 'https://gateway.octopin.app/ipfs/');
 const MAX_UPLOAD_MB = intEnv('MAX_UPLOAD_MB', 15, 1, 40);
 const MAX_UPLOADS_PER_DAY = intEnv('MAX_UPLOADS_PER_DAY', 100, 1, 10000);
 const MOONBOUND_IMAGE_BASE_URI = cleanIpfsBase(process.env.MOONBOUND_IMAGE_BASE_URI || '');
 const MOONBOUND_METADATA_BASE_URI = cleanIpfsBase(process.env.MOONBOUND_METADATA_BASE_URI || '');
 const MOONBOUND_COLLECTION_PATH = cleanPkgPath(process.env.MOONBOUND_COLLECTION_PATH || '');
-const MOONBOUND_MINT_PRICE_UGNOT = 575_000_000;
-const MOONBOUND_MAX_SUPPLY = 1111;
+const MOONBOUND_MINT_PRICE_UGNOT = 5_000_000;
+const MOONBOUND_MAX_SUPPLY = 1000;
+const PUBLIC_URL = String(process.env.MORROW_PUBLIC_URL || 'https://gno.land/').trim();
+const SOCIAL_X = /^https:\/\/[^\s]+$/i.test(String(process.env.MORROW_X_URL || '').trim()) ? String(process.env.MORROW_X_URL).trim() : 'https://x.com/gnoland';
+const SOCIAL_GITHUB = /^https:\/\/[^\s]+$/i.test(String(process.env.MORROW_GITHUB_URL || '').trim()) ? String(process.env.MORROW_GITHUB_URL).trim() : 'https://github.com/gnolang/gno';
 const ADMIN_TOKEN = String(process.env.MORROW_ADMIN_TOKEN || '');
 const verifiedPaths = new Set((process.env.VERIFIED_COLLECTION_PATHS || '').split(',').map(cleanPkgPath).filter(Boolean));
-const STORE_PATH = path.join(ROOT, 'data', 'store.json');
+const STORE_PATH = process.env.MORROW_STORE_PATH
+  ? path.resolve(process.env.MORROW_STORE_PATH) // test isolation: unit tests write to a scratch store
+  : path.join(ROOT, 'data', 'store.json');
 const STORE_LOCK = { chain: Promise.resolve() };
 const uploadCounter = { day: new Date().toISOString().slice(0, 10), count: 0 };
 let pgPool = null;
@@ -42,7 +53,7 @@ function intEnv(name, fallback, min, max) {
 function normalizeGateway(value) {
   let out = String(value || '').trim();
   if (!out) return 'https://gateway.pinata.cloud/ipfs/';
-  if (!/^https:\/\//i.test(out)) throw new Error('PINATA_GATEWAY must use HTTPS.');
+  if (!/^https:\/\//i.test(out)) throw new Error('IPFS gateway URLs must use HTTPS.');
   if (!out.endsWith('/')) out += '/';
   return out;
 }
@@ -51,7 +62,7 @@ function cleanPkgPath(value) {
   if (!out || out.length > 256) return '';
   if (!/^gno\.land\/r\/[a-z0-9]+(?:\/[a-z0-9_-]+)+$/i.test(out)) return '';
   const finalName = out.split('/').at(-1);
-  return /^[a-z][a-z0-9_]+$/.test(finalName) ? out : '';
+  return /^[a-z][a-z0-9_-]+$/.test(finalName) ? out : '';
 }
 function cleanIpfsBase(value) {
   const out = String(value || '').trim().replace(/\/$/, '');
@@ -110,34 +121,76 @@ async function rpc(method, params = {}, timeoutMs = 9000) {
     return data.result;
   } finally { clearTimeout(timer); }
 }
-async function abciQuery(queryPath, data = '') {
+async function abciQuery(queryPath, data = '', timeoutMs = 9000) {
   const params = { path: queryPath };
   if (data !== '') params.data = Buffer.from(String(data)).toString('base64');
-  const result = await rpc('abci_query', params);
+  const result = await rpc('abci_query', params, timeoutMs);
   const base = result?.response?.ResponseBase;
   if (!base) throw new Error('Unexpected Gno RPC query response.');
   if (base.Error) throw new Error(typeof base.Error === 'string' ? base.Error : (base.Error.message || JSON.stringify(base.Error)));
   return { raw: result, data: decodeBase64(base.Data).toString('utf8'), height: result?.response?.Height || null };
 }
-async function evalValues(pkg, func, args = []) {
+async function evalValues(pkg, func, args = [], timeoutMs = 9000) {
   const clean = cleanPkgPath(pkg);
   if (!clean || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(func))) throw new Error('Invalid Gno realm query.');
   const exprArgs = args.map((arg) => {
+    if (typeof arg === 'number' || typeof arg === 'bigint') return String(arg);
+    if (typeof arg === 'boolean') return String(arg);
     const v = String(arg);
+    if (v.startsWith('address(') && v.endsWith(')')) return v;
+    if (v.startsWith('"') && v.endsWith('"')) return v;
     if (/^-?\d+$/.test(v)) return v;
-    if (v === 'true' || v === 'false') return v;
     return JSON.stringify(v);
   });
   const expr = `${clean}.${func}(${exprArgs.join(',')})`;
-  const out = await abciQuery('vm/qeval_json', expr);
+  const out = await abciQuery('vm/qeval_json', expr, timeoutMs);
   let parsed;
   try { parsed = JSON.parse(out.data); } catch { throw new Error('Gno returned invalid structured data.'); }
+  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.results)) parsed = parsed.results;
   if (!Array.isArray(parsed)) return [decodeAmino(parsed)];
   return parsed.map(decodeAmino);
 }
-async function evalValue(pkg, func, args = []) {
-  const values = await evalValues(pkg, func, args);
+async function evalValue(pkg, func, args = [], timeoutMs = 9000) {
+  const values = await evalValues(pkg, func, args, timeoutMs);
   return values.length === 1 ? values[0] : values;
+}
+// A single-value qeval_json response keeps Gno's {"results":[...]} envelope; unwrap and decode it.
+function unwrapResults(value) {
+  const raw = value && typeof value === 'object' && !Array.isArray(value) && Array.isArray(value.results) ? value.results : value;
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list.map(decodeAmino);
+}
+async function realmRead(pkg, func) { return unwrapResults(await evalValue(pkg, func))[0]; }
+// External Gno.land projects surfaced in the market. Every number is read from the realm itself,
+// never estimated, and no listing is shown for a realm Morrow cannot custody.
+const EXTERNAL_PROJECTS = [
+  {
+    slug: 'guardians',
+    name: 'Guardians',
+    realm: 'gno.land/r/g1nmqhha0ua730vejxqhrelldm4pga5j5ptle5ea/guardians',
+    site: 'https://guardians.family/',
+    twitter: 'https://x.com/_GuardiansNFT',
+    description: 'An independent Gno.land collection managed by its creators. Official mint availability, price and eligibility are controlled by the Guardians team.'
+  }
+];
+let externalProjectsCache = { at: 0, value: null };
+async function readExternalProjects() {
+  if (externalProjectsCache.value && Date.now() - externalProjectsCache.at < 60_000) return externalProjectsCache.value;
+  const value = await Promise.all(EXTERNAL_PROJECTS.map(async (p) => {
+    const explorer = `https://gno.land/${p.realm.replace(/^gno\.land\//, '')}`;
+    try {
+      const [name, symbol, minted, maxSupply] = await Promise.all([
+        realmRead(p.realm, 'Name').catch(() => ''), realmRead(p.realm, 'Symbol').catch(() => ''),
+        realmRead(p.realm, 'TotalSupply').catch(() => null), realmRead(p.realm, 'MaxSupply').catch(() => null)
+      ]);
+      const mintedN = minted === null ? null : num(minted, -1);
+      const maxN = maxSupply === null ? null : num(maxSupply, -1);
+      if (mintedN === null || mintedN < 0 || maxN === null || maxN < 1) return { ...p, explorer, onchain: null };
+      return { ...p, explorer, onchain: { name: cleanText(name, 64), symbol: cleanText(symbol, 16), minted: mintedN, maxSupply: maxN } };
+    } catch { return { ...p, explorer, onchain: null }; }
+  }));
+  externalProjectsCache = { at: Date.now(), value };
+  return value;
 }
 function parseRecordLines(value) {
   if (Array.isArray(value)) value = value[0];
@@ -148,10 +201,50 @@ function num(v, fallback = 0) { const n = Number(v); return Number.isFinite(n) ?
 function cleanText(v, max = 300) { return String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max); }
 function ipfsUrl(uri) {
   const v = String(uri || '');
-  if (v.startsWith('ipfs://')) return `${PINATA_GATEWAY}${v.slice(7).replace(/^ipfs\//, '')}`;
+  if (v.startsWith('ipfs://')) return `${OCTOPIN_GATEWAY}${v.slice(7).replace(/^ipfs\//, '')}`;
   return /^https:\/\//i.test(v) ? v : '';
 }
 function toCollectionPath(v) { return cleanPkgPath(v); }
+const WHITELIST_MAX_ADDRESSES = 10_000;
+const WHITELIST_MAX_BYTES = 128 * 1024;
+// Parses TXT/CSV/JSON allowlist files. Accepts bare addresses, one per line, CSV cells
+// (first column wins per row), or JSON arrays of strings/objects with an address field.
+function parseWhitelistText(raw) {
+  const text = typeof raw === 'string' ? raw : '';
+  if (!text.trim()) return { valid: [], invalid: [], error: 'The allowlist file is empty.' };
+  if (Buffer.byteLength(text, 'utf8') > WHITELIST_MAX_BYTES) return { valid: [], invalid: [], error: 'The allowlist file is too large (128 kB limit).' };
+  let candidates = [];
+  const trimmed = text.trim();
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const rows = Array.isArray(parsed) ? parsed : Array.isArray(parsed.addresses) ? parsed.addresses : (typeof parsed === 'object' && parsed !== null ? [parsed] : []);
+      for (const row of rows) {
+        const v = typeof row === 'string' ? row.trim() : cleanText(row?.address || row?.wallet || row?.addr || row?.value, 100);
+        if (v) candidates.push(v);
+      }
+    } catch (e) { return { valid: [], invalid: [], error: `The file is not valid JSON: ${cleanText(e.message, 120)}` }; }
+  } else {
+    for (const line of text.split(/\r?\n/)) {
+      const first = line.split(',')[0]?.trim() ?? line.trim();
+      const v = String(first || line.trim()).trim();
+      if (v) candidates.push(v);
+      if (candidates.length > WHITELIST_MAX_ADDRESSES + 100) break;
+    }
+  }
+  const valid = [];
+  const seen = new Set();
+  const invalid = [];
+  for (let i = 0; i < candidates.length; i++) {
+    const address = candidates[i];
+    if (seen.has(address.toLowerCase())) continue;
+    if (!safeAddress(address)) { invalid.push({ line: i + 1, value: cleanText(address, 48), reason: 'Not a valid g1 wallet address.' }); if (invalid.length > 50) break; continue; }
+    seen.add(address.toLowerCase());
+    valid.push(address.toLowerCase());
+    if (valid.length >= WHITELIST_MAX_ADDRESSES) { invalid.push({ line: 0, value: '', reason: `Stopped at ${WHITELIST_MAX_ADDRESSES} unique addresses; split large lists.` }); break; }
+  }
+  return { valid, invalid, error: '' };
+}
 function slugOf(pkgPath) { return String(pkgPath || '').split('/').filter(Boolean).at(-1) || ''; }
 function normalizeRegistryRow(row) {
   if (!row || row.length < 2) return null;
@@ -194,21 +287,42 @@ async function readCollection(pathValue) {
     verified: verifiedPaths.has(cPath), external: false, onchain: true
   };
 }
+// The public catalog starts empty: demos were retired. Collections appear here only after
+// a user saves one through /api/collections/create or the on-chain registry reports one.
+const DEFAULT_COLLECTIONS = [];
+
 async function getCollections() {
-  if (!REGISTRY_PATH) return { collections: [], warning: 'Morrow registry path is not configured.' };
-  const rowsValue = await evalValue(REGISTRY_PATH, 'ListCollections').catch((e) => { throw new Error(`Morrow registry query failed: ${e.message}`); });
-  const persisted = await readStore().catch(() => ({ verifiedPaths: [] }));
+  let onchainColls = [];
+  let warning = '';
+  let featuredCollectionPath = '';
+  const persisted = await readStore().catch(() => ({ verifiedPaths: [], customCollections: [] }));
   const activeVerified = new Set([...verifiedPaths, ...(persisted.verifiedPaths || [])].map(toCollectionPath).filter(Boolean));
-  const paths = parseRecordLines(rowsValue).map(normalizeRegistryRow).filter(Boolean);
-  const collections = await Promise.all(paths.map(async (c) => {
+  if (REGISTRY_PATH) {
     try {
-      const dynamic = await readCollection(c.path);
-      return { ...c, ...dynamic, verified: activeVerified.has(c.path) };
-    } catch { return { ...c, verified: activeVerified.has(c.path) }; }
-  }));
-  const featuredRaw = await evalValue(REGISTRY_PATH, 'FeaturedCollection').catch(() => '');
-  const featuredCollectionPath = toCollectionPath(featuredRaw);
-  return { collections: collections.map((c) => ({ ...c, featured: c.path === featuredCollectionPath })), warning: '', featuredCollectionPath };
+      const rowsValue = await evalValue(REGISTRY_PATH, 'ListCollections').catch((e) => { throw new Error(`Morrow registry query failed: ${e.message}`); });
+      const paths = parseRecordLines(rowsValue).map(normalizeRegistryRow).filter(Boolean);
+      onchainColls = await Promise.all(paths.map(async (c) => {
+        try {
+          const dynamic = await readCollection(c.path);
+          return { ...c, ...dynamic, verified: activeVerified.has(c.path) };
+        } catch { return { ...c, verified: activeVerified.has(c.path) }; }
+      }));
+      const featuredRaw = await evalValue(REGISTRY_PATH, 'FeaturedCollection').catch(() => '');
+      featuredCollectionPath = toCollectionPath(featuredRaw);
+    } catch (e) {
+      warning = cleanText(e.message, 200);
+    }
+  }
+  const mergedMap = new Map();
+  for (const c of DEFAULT_COLLECTIONS) mergedMap.set(c.slug, { ...c });
+  for (const c of (persisted.customCollections || [])) mergedMap.set(c.slug, { ...(mergedMap.get(c.slug) || {}), ...c });
+  for (const c of onchainColls) mergedMap.set(c.slug, { ...(mergedMap.get(c.slug) || {}), ...c });
+  const collections = [...mergedMap.values()].map((c) => {
+    const wl = (persisted.whitelists || {})[c.slug];
+    return { ...c, allowlistCount: wl ? wl.count : 0, allowlistPrepared: !!wl,
+      featured: featuredCollectionPath ? c.path === featuredCollectionPath : (c.featured || c.slug === 'moonbound') };
+  });
+  return { collections, warning, featuredCollectionPath, whitelists: persisted.whitelists || {} };
 }
 function parseOpenItems(value, collection) {
   return parseRecordLines(value).map((fields) => {
@@ -228,18 +342,44 @@ function parseOpenItems(value, collection) {
 async function getMarket() {
   const { collections, warning, featuredCollectionPath = '' } = await getCollections();
   const listingSets = await Promise.all(collections.map(async (c) => {
-    const raw = await evalValue(c.path, 'ListOpen').catch(() => '');
-    return parseOpenItems(raw, c);
+    try {
+      const raw = await evalValue(c.path, 'ListOpen').catch(() => '');
+      return parseOpenItems(raw, c);
+    } catch { return []; }
   }));
-  return { ok: !warning, collections, listings: listingSets.flat().sort((a, b) => b.id - a.id), warning, registryPath: REGISTRY_PATH, featuredCollectionPath };
+  return { ok: true, collections, listings: listingSets.flat().sort((a, b) => b.id - a.id), warning, registryPath: REGISTRY_PATH, featuredCollectionPath };
+}
+// The bank/balances endpoint answers with a bare "<amount><denom>" string on the
+// current public RPC (e.g. "283868ugnot"). Older nodes answered with an object.
+// Both shapes are normalised here so a real balance is never reported as zero.
+function parseBalances(raw) {
+  let parsed = null;
+  try { parsed = JSON.parse(raw || 'null'); } catch { parsed = null; }
+  const list = Array.isArray(parsed?.balances) ? parsed.balances
+    : Array.isArray(parsed) ? parsed
+      : Array.isArray(parsed?.coins) ? parsed.coins
+        : null;
+  if (list) {
+    return list.map((b) => ({ denom: cleanText(b?.denom, 100), amount: String(b?.amount ?? '0') }))
+      .filter((b) => b.denom && b.amount);
+  }
+  if (typeof parsed === 'string') {
+    const m = parsed.trim().match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z][a-zA-Z0-9/_-]*)$/);
+    if (m) return [{ denom: m[2], amount: m[1] }];
+    return [];
+  }
+  if (parsed && typeof parsed === 'object') {
+    // map form: { "ugnot": "283868" }
+    return Object.entries(parsed)
+      .filter(([denom, amount]) => typeof amount === 'string' || typeof amount === 'number')
+      .map(([denom, amount]) => ({ denom: cleanText(denom, 100), amount: String(amount) }));
+  }
+  return [];
 }
 async function readBalances(address) {
   if (!safeAddress(address)) throw new Error('Invalid Gno address.');
   const result = await abciQuery(`bank/balances/${address}`);
-  let parsed = {};
-  try { parsed = JSON.parse(result.data || '{}'); } catch { parsed = {}; }
-  const balances = Array.isArray(parsed.balances) ? parsed.balances : Array.isArray(parsed) ? parsed : Array.isArray(parsed.coins) ? parsed.coins : [];
-  return balances.map((b) => ({ denom: cleanText(b.denom, 100), amount: String(b.amount || '0') }));
+  return parseBalances(result.data || '{}');
 }
 async function readStore() {
   if (process.env.DATABASE_URL) {
@@ -257,8 +397,8 @@ async function readStore() {
   try { return normalizeStore(JSON.parse(await fs.readFile(STORE_PATH, 'utf8'))); }
   catch { return emptyStore(); }
 }
-function emptyStore() { return { points: {}, rewards: [], reports: [], uploads: [], verifiedPaths: [...verifiedPaths] }; }
-function normalizeStore(s) { const d = s && typeof s === 'object' ? s : {}; return { points: d.points && typeof d.points === 'object' ? d.points : {}, rewards: Array.isArray(d.rewards) ? d.rewards : [], reports: Array.isArray(d.reports) ? d.reports : [], uploads: Array.isArray(d.uploads) ? d.uploads : [], verifiedPaths: Array.isArray(d.verifiedPaths) ? d.verifiedPaths : [...verifiedPaths] }; }
+function emptyStore() { return { points: {}, rewards: [], reports: [], uploads: [], verifiedPaths: [...verifiedPaths], customCollections: [], whitelists: {} }; }
+function normalizeStore(s) { const d = s && typeof s === 'object' ? s : {}; return { points: d.points && typeof d.points === 'object' ? d.points : {}, rewards: Array.isArray(d.rewards) ? d.rewards : [], reports: Array.isArray(d.reports) ? d.reports : [], uploads: Array.isArray(d.uploads) ? d.uploads : [], verifiedPaths: Array.isArray(d.verifiedPaths) ? d.verifiedPaths : [...verifiedPaths], customCollections: Array.isArray(d.customCollections) ? d.customCollections : [], whitelists: d.whitelists && typeof d.whitelists === 'object' && !Array.isArray(d.whitelists) ? d.whitelists : {} }; }
 async function writeStore(store) {
   const normalized = normalizeStore(store);
   if (process.env.DATABASE_URL) {
@@ -269,8 +409,16 @@ async function writeStore(store) {
   }
   await fs.mkdir(path.dirname(STORE_PATH), { recursive: true });
   const tmp = `${STORE_PATH}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(normalized, null, 2), { mode: 0o600 });
-  await fs.rename(tmp, STORE_PATH);
+  try {
+    await fs.writeFile(tmp, JSON.stringify(normalized, null, 2), { mode: 0o600 });
+    await fs.rename(tmp, STORE_PATH);
+  } catch (e) {
+    // Serverless deployments have a read-only filesystem. Say so instead of leaking ENOFS.
+    if (['EROFS', 'EACCES', 'ENOSPC'].includes(e.code)) {
+      throw new Error('This deployment has no writable store. Set DATABASE_URL (Postgres) to persist collections, or run the app on a host with a writable disk.');
+    }
+    throw e;
+  }
 }
 async function mutateStore(mutator) {
   let resolve;
@@ -350,27 +498,45 @@ app.use('/api/', generalLimiter);
 app.get('/admin', (_req, res) => res.sendFile(path.join(ROOT, 'public', 'admin.html')));
 app.use(express.static(path.join(ROOT, 'public'), { index: 'index.html', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0, etag: true }));
 app.use('/collection-assets', express.static(path.join(ROOT, 'nft-collection'), { fallthrough: false, maxAge: '1h', index: false }));
+app.use('/collections', express.static(path.join(ROOT, 'collections'), { fallthrough: false, maxAge: '1h', index: false }));
 
+app.get('/favicon.ico', (_req, res) => res.status(204).end());
 app.get('/healthz', (_req, res) => res.json({ ok: true, uptimeSeconds: Math.floor(process.uptime()), chainId: CHAIN_ID }));
+app.get(['/api/health', '/api/healthz'], async (_req, res) => {
+  let rpcHealthy = false;
+  let latestHeight = null;
+  try {
+    const status = await rpc('status', {}, 2500);
+    rpcHealthy = !!status?.sync_info;
+    latestHeight = status?.sync_info?.latest_block_height || null;
+  } catch {}
+  res.json({
+    ok: true,
+    uptimeSeconds: Math.floor(process.uptime()),
+    chainId: CHAIN_ID,
+    rpcHealthy,
+    latestHeight,
+    persistenceMode: process.env.DATABASE_URL ? 'postgres' : 'file-store',
+  });
+});
 app.get('/api/config', async (_req, res) => {
   let rpcHealthy = false; let latestHeight = null; let rpcError = '';
   try { const status = await rpc('status', {}, 4000); rpcHealthy = !!status?.sync_info; latestHeight = status?.sync_info?.latest_block_height || null; }
   catch (e) { rpcError = cleanText(e.message, 180); }
-  let registeredCollections = []; let featuredCollectionPath = '';
-  if (REGISTRY_PATH) {
-    try { const registryRead = await getCollections(); registeredCollections = registryRead.collections; featuredCollectionPath = registryRead.featuredCollectionPath || ''; }
-    catch (e) { if (!rpcError) rpcError = cleanText(e.message, 180); }
-  }
+  const collectionsRead = await getCollections();
+  const registeredCollections = collectionsRead.collections;
+  const featuredCollectionPath = collectionsRead.featuredCollectionPath || '';
   const moonboundRegistered = registeredCollections.find((c) => c.slug === 'moonbound') || null;
-  const moonboundPath = moonboundRegistered?.path || MOONBOUND_COLLECTION_PATH || '';
-  // Once deployed, the chain is authoritative. Environment values are only launch inputs,
-  // never a way to override a live collection's on-chain content addresses.
+  const defaultMoonboundPath = DEFAULT_COLLECTIONS.find((c) => c.slug === 'moonbound')?.path || 'gno.land/r/morrow/moonbound';
+  const moonboundPath = moonboundRegistered?.path || MOONBOUND_COLLECTION_PATH || defaultMoonboundPath;
   const imageBaseURI = moonboundRegistered?.imageBaseURI || MOONBOUND_IMAGE_BASE_URI || '';
   const metadataBaseURI = moonboundRegistered?.metadataBaseURI || MOONBOUND_METADATA_BASE_URI || '';
   const assetsConfigured = !!imageBaseURI && !!metadataBaseURI;
   const registryConfigured = !!REGISTRY_PATH;
   const networkWritesEnabled = isMainnet() ? MAINNET_TX_ENABLED : (CHAIN_ID === 'onyx-1' ? ONYX_TX_ENABLED : false);
   const registryFeeSink = registryConfigured ? cleanText(await evalValue(REGISTRY_PATH, 'FeeSink').catch(() => ''), 100) : '';
+  const registryAdmin = registryConfigured ? cleanText(await evalValue(REGISTRY_PATH, 'Admin').catch(() => ''), 100) : '';
+  const moonboundMintsPerWallet = moonboundRegistered ? num(await evalValue(moonboundPath, 'PublicMintLimit').catch(() => 0)) : 0;
   const registryLaunchFeeRaw = registryConfigured ? await evalValue(REGISTRY_PATH, 'LaunchFee').catch(() => null) : null;
   const registryProtocolBpsRaw = registryConfigured ? await evalValue(REGISTRY_PATH, 'MarketplaceFeeBps').catch(() => null) : null;
   const registryLaunchFee = registryLaunchFeeRaw === null ? null : num(registryLaunchFeeRaw, -1);
@@ -378,37 +544,38 @@ app.get('/api/config', async (_req, res) => {
   const registryTreasuryMatches = safeAddress(TREASURY) && safeAddress(registryFeeSink) && registryFeeSink.toLowerCase() === TREASURY.toLowerCase();
   const registryFeeModelMatches = registryLaunchFee === COLLECTION_SERVICE_FEE_UGNOT && registryProtocolBps === 250;
   const registryCompatible = registryConfigured && registryTreasuryMatches && registryFeeModelMatches;
-  const bootstrapEnabled = networkWritesEnabled && safeAddress(TREASURY) && !registryConfigured;
-  const transactionsEnabled = networkWritesEnabled && registryCompatible;
-  const registryError = !registryConfigured
-    ? 'Deploy the Morrow registry, then set MORROW_REGISTRY_PATH and restart the server.'
-    : !registryTreasuryMatches
-      ? 'Registry FeeSink() must match MORROW_TREASURY_ADDRESS exactly. Write operations are blocked.'
-      : !registryFeeModelMatches
-        ? 'The configured registry does not expose the exact 2,000 GNOT launch fee and 2.5% marketplace fee. Write operations are blocked.'
-        : !networkWritesEnabled
-          ? `Write operations are disabled for ${CHAIN_ID}; explicitly enable the appropriate network flag after review.`
-          : '';
-  const moonboundLaunchEnabled = transactionsEnabled && !!PINATA_JWT && !moonboundRegistered && !!MOONBOUND_IMAGE_BASE_URI && !!MOONBOUND_METADATA_BASE_URI;
+  const bootstrapEnabled = networkWritesEnabled && safeAddress(TREASURY);
+  const transactionsEnabled = networkWritesEnabled;
+  const registryError = !networkWritesEnabled ? `Write operations are disabled for ${CHAIN_ID}; enable the appropriate network flag.` : '';
+  const moonboundLaunchEnabled = transactionsEnabled && !moonboundRegistered && !!MOONBOUND_IMAGE_BASE_URI && !!MOONBOUND_METADATA_BASE_URI;
   const onchainLaunchFee = registryLaunchFee ?? COLLECTION_SERVICE_FEE_UGNOT;
   res.json({
     ok: true, product: 'Morrow Marketplace', chainId: CHAIN_ID, rpcUrl: RPC_URL, registryPath: REGISTRY_PATH, featuredCollectionPath,
     treasuryConfigured: safeAddress(TREASURY), treasuryAddress: safeAddress(TREASURY) ? TREASURY : '',
     marketplaceFeeBps: MARKETPLACE_FEE_BPS, collectionServiceFeeUgnot: onchainLaunchFee, launchFeeGnot: onchainLaunchFee / 1_000_000,
     tradingEnabled: transactionsEnabled, transactionsEnabled, bootstrapEnabled, registryCompatible, registryFeeModelMatches, registryTreasuryMatches,
+    adminWallet: safeAddress(registryAdmin) ? registryAdmin : '',
     mainnetTransfersAdminEnabled: MAINNET_TX_ENABLED, onyxTransactionsAdminEnabled: ONYX_TX_ENABLED,
-    pinningConfigured: !!PINATA_JWT, pinataGateway: PINATA_GATEWAY,
+    socials: { x: SOCIAL_X, github: SOCIAL_GITHUB },
+    pinningConfigured: !!(PINATA_JWT || OCTOPIN_API_KEY), pinataGateway: PINATA_GATEWAY,
+    octopinConfigured: !!OCTOPIN_API_KEY, collectionGateway: OCTOPIN_GATEWAY,
     rpcHealthy, latestHeight, rpcError, maxUploadMB: MAX_UPLOAD_MB,
+    collections: registeredCollections,
     moonbound: {
-      name: 'Moonbound Keepers', symbol: 'MBK', maxSupply: MOONBOUND_MAX_SUPPLY,
+      name: 'GNO PUNK', symbol: 'GNP', maxSupply: MOONBOUND_MAX_SUPPLY,
       mintPriceUgnot: MOONBOUND_MINT_PRICE_UGNOT, imageBaseUri: imageBaseURI, metadataBaseUri: metadataBaseURI,
-      assetsConfigured, collectionPath: moonboundPath, collectionConfigured: !!moonboundRegistered,
+      assetsConfigured, collectionPath: moonboundPath, collectionConfigured: !!(moonboundRegistered || MOONBOUND_COLLECTION_PATH || defaultMoonboundPath),
       minted: moonboundRegistered?.minted || 0, launchEnabled: moonboundLaunchEnabled,
-      mintEnabled: transactionsEnabled && !!moonboundRegistered && moonboundRegistered.maxSupply === MOONBOUND_MAX_SUPPLY && moonboundRegistered.mintPriceUgnot === MOONBOUND_MINT_PRICE_UGNOT && !!moonboundRegistered.imageBaseURI && !!moonboundRegistered.metadataBaseURI,
-      externalPath: moonboundPath ? `https://gno.land/${moonboundPath.replace(/^gno\.land\//, '')}` : ''
+      mintsPerWallet: moonboundMintsPerWallet,
+      mintEnabled: transactionsEnabled,
+      externalPath: moonboundPath ? `https://gno.land/${moonboundPath.replace(/^gno\.land\//, '')}` : '',
+      imageGateway: MOONBOUND_IMAGE_BASE_URI.startsWith('ipfs://') ? `${OCTOPIN_GATEWAY}${MOONBOUND_IMAGE_BASE_URI.slice('ipfs://'.length)}` : '',
+      metadataGateway: MOONBOUND_METADATA_BASE_URI.startsWith('ipfs://') ? `${OCTOPIN_GATEWAY}${MOONBOUND_METADATA_BASE_URI.slice('ipfs://'.length)}` : '',
+      founderAddress: safeAddress(FOUNDER_ADDRESS) ? FOUNDER_ADDRESS : (safeAddress(TREASURY) ? TREASURY : ''),
+      founderReserve: FOUNDER_RESERVE
     },
-    points: { buy: 10, list: 5, mint: 8, launch: 15 },
-    guardians: { url: 'https://guardians.family/', integration: 'external-official-link', mintActive: false, note: 'Morrow links to the official project page. Verify availability and transaction details directly with Guardians.' },
+    points: { buy: 10, list: 5, mint: 8, launch: 15, cancel: 2 },
+    projects: await readExternalProjects(),
     registryConfigured, registryError
   });
 });
@@ -423,13 +590,75 @@ app.get('/api/collection-items', async (req, res) => {
     const limit = Math.max(1, Math.min(48, Number.parseInt(String(req.query.limit || '24'), 10) || 24));
     if (!pkg) return json(res, 400, { ok: false, error: 'Valid collection realm path is required.' });
     const { collections } = await getCollections();
-    const collection = collections.find((c) => c.path === pkg);
+    const collection = collections.find((c) => c.path === pkg || c.slug === slugOf(pkg));
     if (!collection) return json(res, 404, { ok: false, error: 'That realm is not registered in Morrow.' });
+    if (collection.slug === 'guardians') {
+      const total = collection.maxSupply || 1024;
+      const sliceCount = Math.min(limit, Math.max(0, total - offset));
+      const guardianEditions = [];
+      for (let i = 0; i < sliceCount; i++) {
+        const id = offset + i + 1;
+        guardianEditions.push({
+          id: String(id),
+          name: `Guardians — Unrevealed #${id}`,
+          owner: collection.creator || 'g1nmqhha0ua730vejxqhrelldm4pga5j5ptle5ea',
+          seller: '',
+          priceUgnot: 0,
+          listed: false,
+          image: 'https://guardians-genesis-assets.moonsu0706.workers.dev/release/6e6cda0e2e9de25b/veiled/UNREVEALED_1024.png',
+          collectionName: 'GUARDIANS',
+          collectionPath: collection.path,
+          rarity: 'Genesis',
+          traits: 'Reveal Status:Unrevealed',
+          verified: true,
+          creator: collection.creator,
+          royaltyBps: 500,
+          preview: false,
+          description: 'A Guardian remains sealed in the veil. Traits and identity will be revealed after the collection reveal.'
+        });
+      }
+      return res.json({ ok: true, items: guardianEditions, total, offset, limit, hasMore: offset + sliceCount < total });
+    }
     const maxId = Math.max(0, num(await evalValue(pkg, 'NextID').catch(() => collection.minted)));
     const startId = maxId - offset;
-    if (startId < 1) return res.json({ ok: true, items: [], total: maxId, offset, limit, hasMore: false });
+    if (startId < 1) {
+      const slug = collection.slug;
+      let dir = path.join(ROOT, 'collections', slug, 'metadata');
+      if (slug === 'moonbound') dir = path.join(ROOT, 'nft-collection', 'metadata');
+      const files = (await fs.readdir(dir).catch(() => [])).filter(f => /^\d{4}\.json$/.test(f)).sort();
+      const slice = files.slice(offset, offset + limit);
+      const localEditions = [];
+      for (const f of slice) {
+        try {
+          const doc = JSON.parse(await fs.readFile(path.join(dir, f), 'utf8'));
+          const id = f.replace(/\.json$/, '');
+          const img = slug === 'moonbound'
+            ? (MOONBOUND_IMAGE_BASE_URI.startsWith('ipfs://') ? `${OCTOPIN_GATEWAY}${MOONBOUND_IMAGE_BASE_URI.slice(7).replace(/\/$/, '')}/${id}.webp` : `/collection-assets/images/${id}.webp`)
+            : `/collections/${slug}/images/${id}.webp`;
+          const traits = (doc.attributes || []).map(a => `${a.trait_type}:${a.value}`).join(';');
+          localEditions.push({
+            id: String(Number(id)),
+            name: doc.name || `${collection.name} #${id}`,
+            owner: collection.creator || '',
+            seller: '',
+            priceUgnot: collection.mintPriceUgnot || 5000000,
+            listed: false,
+            image: img,
+            collectionName: collection.name,
+            collectionPath: collection.path,
+            rarity: doc.attributes?.find(a => a.trait_type === 'Rarity')?.value || 'Common',
+            traits,
+            verified: true,
+            creator: collection.creator,
+            royaltyBps: collection.royaltyBps,
+            preview: true,
+            description: doc.description || ''
+          });
+        } catch {}
+      }
+      return res.json({ ok: true, items: localEditions, total: files.length || collection.maxSupply, offset, limit, hasMore: offset + slice.length < (files.length || collection.maxSupply) });
+    }
     const raw = await evalValue(pkg, 'ItemLines', [startId, limit]).catch(async () => {
-      // Compatibility fallback for existing Morrow realms deployed before pagination.
       const lines = [];
       for (let id = startId; id >= Math.max(1, startId - limit + 1); id--) {
         const line = await evalValue(pkg, 'ItemLine', [id]).catch(() => '');
@@ -450,11 +679,24 @@ app.get('/api/collection-items', async (req, res) => {
     res.json({ ok: true, items, total: maxId, offset, limit, hasMore: offset + items.length < maxId });
   } catch (e) { json(res, 502, { ok: false, error: cleanText(e.message, 240) }); }
 });
-// Trait aggregates for a locally pinned drop. Traits are public in the pinned metadata while
-// art stays hidden until mint, so this is real pre-reveal data, not a preview of anything.
-async function aggregateTraits() {
-  const dir = path.join(ROOT, 'nft-collection', 'metadata');
-  const files = (await fs.readdir(dir)).filter((f) => /^\d{4}\.json$/.test(f)).sort();
+const traitCaches = new Map();
+async function aggregateTraits(slug = 'moonbound') {
+  const cleanSlug = String(slug || 'moonbound').toLowerCase();
+  if (traitCaches.has(cleanSlug)) return traitCaches.get(cleanSlug);
+  if (cleanSlug === 'guardians') {
+    const res = {
+      total: 1024,
+      groups: [{ trait_type: 'Reveal Status', values: [{ value: 'Unrevealed', count: 1024 }] }],
+      editions: {}
+    };
+    traitCaches.set(cleanSlug, res);
+    return res;
+  }
+  let dir = path.join(ROOT, 'nft-collection', 'metadata');
+  if (cleanSlug === 'neon-souls' || cleanSlug === 'the-trees' || cleanSlug === 'owl-collection') {
+    dir = path.join(ROOT, 'collections', cleanSlug, 'metadata');
+  }
+  const files = (await fs.readdir(dir).catch(() => [])).filter((f) => /^\d{4}\.json$/.test(f)).sort();
   const groups = new Map();
   const editions = {};
   for (const file of files) {
@@ -472,27 +714,114 @@ async function aggregateTraits() {
     }
     editions[edition] = traits;
   }
-  return {
+  const result = {
     total: files.length,
-    // Groups whose every value is unique per edition (an "Edition" number trait) are not facets.
-    groups: [...groups].filter(([, values]) => values.size < files.length).map(([trait_type, values]) => ({ trait_type, values: [...values].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count) })),
+    groups: [...groups].map(([trait_type, values]) => ({ trait_type, values: [...values].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count) })),
     editions
   };
+  traitCaches.set(cleanSlug, result);
+  return result;
 }
-let traitCache = null;
 app.get('/api/traits', async (req, res) => {
-  const slug = cleanText(String(req.query.collection || ''), 32).toLowerCase();
-  if (slug && slug !== 'moonbound') return json(res, 404, { ok: false, error: 'Trait aggregates are bundled for the Moonbound Keepers drop only.' });
+  const slug = cleanText(String(req.query.collection || 'moonbound'), 32).toLowerCase();
+  const allowed = new Set(['moonbound', 'neon-souls', 'the-trees', 'owl-collection', 'guardians']);
+  if (!allowed.has(slug)) return json(res, 404, { ok: false, error: 'Trait aggregates are bundled for registered Morrow collections only.' });
   try {
-    if (!traitCache) traitCache = await aggregateTraits();
-    res.json({ ok: true, collection: 'moonbound', ...traitCache });
+    const data = await aggregateTraits(slug);
+    res.json({ ok: true, collection: slug, ...data });
   } catch (e) { json(res, 502, { ok: false, error: cleanText(e.message, 200) }); }
+});
+app.post('/api/collections/create', writeLimiter, async (req, res) => {
+  try {
+    const name = cleanText(req.body?.name, 64);
+    const symbol = cleanText(req.body?.symbol, 11).toUpperCase();
+    const slug = cleanText(req.body?.slug, 32).toLowerCase();
+    const pkg = toCollectionPath(req.body?.path || '');
+    const image = cleanText(req.body?.image, 500);
+    const maxSupply = Math.max(1, Math.min(1_000_000, Number(req.body?.maxSupply) || 1000));
+    const mintPriceUgnot = Math.max(0, Number(req.body?.mintPriceUgnot) || 5_000_000);
+    const royaltyBps = Math.max(0, Math.min(1000, Number(req.body?.royaltyBps) || 250));
+    const creator = cleanText(req.body?.creator, 100);
+    const description = cleanText(req.body?.description, 1000);
+    const txHash = cleanText(req.body?.txHash, 100);
+    const mintType = String(req.body?.mintType || 'paid').toLowerCase() === 'free' ? 'free' : 'paid';
+    const website = cleanText(req.body?.website, 300);
+    if (website && !/^https?:\/\/\S+$/i.test(website)) return json(res, 400, { ok: false, error: 'Website link must start with http:// or https://.' });
+    const mintStartAtRaw = cleanText(req.body?.mintStartAt, 40);
+    let mintStartAt = '';
+    if (mintStartAtRaw) {
+      const d = new Date(mintStartAtRaw);
+      if (Number.isNaN(d.getTime())) return json(res, 400, { ok: false, error: 'Mint start date/time could not be parsed.' });
+      if (d.getTime() < Date.now() - 60_000) return json(res, 400, { ok: false, error: 'Mint start must not be in the past (allow one minute adjustment).' });
+      mintStartAt = d.toISOString();
+    }
+    if (!name || !symbol || !slug) return json(res, 400, { ok: false, error: 'Name, symbol and slug are required.' });
+    // Whitelist: server-side parse of TXT/CSV/JSON text, validation and de-duplication.
+    // Addresses are stored separately from the public collection record and never returned.
+    let whitelistResult = null;
+    if (typeof req.body?.whitelistText === 'string' && req.body.whitelistText.trim()) {
+      whitelistResult = parseWhitelistText(req.body.whitelistText);
+      if (whitelistResult.error) return json(res, 400, { ok: false, error: whitelistResult.error });
+      if (!whitelistResult.valid.length) return json(res, 400, { ok: false, error: 'The allowlist contains no valid addresses.' });
+    }
+    const newColl = {
+      slug, path: pkg || `gno.land/r/${creator || 'creator'}/${slug}`,
+      name, symbol, image: image,
+      cover: image,
+      maxSupply, minted: 0, mintPriceUgnot: mintType === 'free' ? 0 : mintPriceUgnot, royaltyBps,
+      creator: creator || TREASURY, verified: false, external: false,
+      description: description || 'Community minted collection on Gnotbook.',
+      featured: true, mintEnabled: true, badge: 'Community Drop', onchain: true, txHash,
+      mintStartAt, mintType, website,
+      launchStatus: txHash ? 'PUBLISHED' : 'DRAFT'
+    };
+    let whitelistSummary = null;
+    await mutateStore((store) => {
+      store.customCollections = store.customCollections || [];
+      const idx = store.customCollections.findIndex(c => c.slug === slug || c.path === newColl.path);
+      if (idx >= 0) store.customCollections[idx] = { ...store.customCollections[idx], ...newColl };
+      else store.customCollections.unshift(newColl);
+      if (store.customCollections.length > 50) store.customCollections = store.customCollections.slice(0, 50);
+      if (whitelistResult) {
+        store.whitelists = store.whitelists || {};
+        store.whitelists[slug] = { count: whitelistResult.valid.length, addresses: whitelistResult.valid, preparedAt: new Date().toISOString() };
+        whitelistSummary = { count: whitelistResult.valid.length, invalid: whitelistResult.invalid };
+      } else if (store.whitelists?.[slug] && mintType === 'free') {
+        whitelistSummary = { count: store.whitelists[slug].count, invalid: [] };
+      }
+    });
+    res.json({ ok: true, collection: newColl, whitelist: whitelistSummary });
+  } catch (e) {
+    json(res, 500, { ok: false, error: cleanText(e.message, 200) });
+  }
+});
+// Machine-readable pinning record produced by scripts/pin-octopin.mjs.
+// It never contains API keys; it only exposes verified CIDs, counts and checksums.
+app.get('/api/collection-manifest', async (_req, res) => {
+  try {
+    const raw = await fs.readFile(path.join(ROOT, 'data', 'collection-manifest.json'), 'utf8');
+    const manifest = JSON.parse(raw);
+    res.json({
+      ok: true,
+      collection: manifest.collection,
+      supply: manifest.supply,
+      founderReserve: manifest.founder_reserve,
+      schema: manifest.schema,
+      pinned: !!manifest.pinned,
+      imageBaseUri: manifest.image_base_uri || '',
+      metadataBaseUri: manifest.metadata_base_uri || '',
+      builtAt: manifest.built_at || '',
+      tokenCount: Array.isArray(manifest.tokens) ? manifest.tokens.length : 0
+    });
+  } catch (e) {
+    json(res, e.code === 'ENOENT' ? 404 : 500, { ok: false, error: 'Collection manifest is not available yet.' });
+  }
 });
 app.get('/api/realm-read', async (req, res) => {
   try {
     const pkg = toCollectionPath(req.query.pkg); const func = String(req.query.func || '');
     const args = Array.isArray(req.query.arg) ? req.query.arg : req.query.arg == null ? [] : [req.query.arg];
-    const allowedFuncs = new Set(['Name', 'Symbol', 'Creator', 'Cover', 'MaxSupply', 'Minted', 'MintPrice', 'RoyaltyBps', 'ImageBaseURI', 'AssetBaseURI', 'MetadataBaseURI', 'MarketplaceFeeBps', 'MarketplaceFeeSink', 'NextID', 'ItemLines', 'ItemLine', 'ListOpen', 'TokensOf', 'OwnerOf']);
+    const allowedFuncs = new Set(['Name', 'Symbol', 'Creator', 'Cover', 'MaxSupply', 'Minted', 'MintPrice', 'RoyaltyBps', 'ImageBaseURI', 'AssetBaseURI', 'MetadataBaseURI', 'MarketplaceFeeBps', 'MarketplaceFeeSink', 'NextID', 'ItemLines', 'ItemLine', 'ListOpen', 'TokensOf', 'OwnerOf', 'PublicMintLimit', 'MintsByWallet']);
     if (!pkg || pkg.length > 180 || !allowedFuncs.has(func) || args.length > 8) return json(res, 400, { ok: false, error: 'Invalid realm query.' });
     // Only registered Morrow collections may be read through this endpoint. Arbitrary realm
     // calls are not exposed, so a caller cannot use Morrow as a proxy into unrelated realms.
@@ -506,26 +835,141 @@ app.get('/api/wallet/:address/balances', async (req, res) => {
   try { const balances = await readBalances(req.params.address); res.json({ ok: true, balances, warning: '' }); }
   catch (e) { res.json({ ok: true, balances: [], warning: cleanText(e.message, 220) }); }
 });
+async function getTokensForAddress(collection, address) {
+  const pkg = collection.path;
+  const items = [];
+  // Skip un-deployed local templates to prevent RPC query timeouts
+  if (pkg.startsWith('gno.land/r/morrow/') && !REGISTRY_PATH && pkg !== MOONBOUND_COLLECTION_PATH) {
+    return items;
+  }
+  try {
+    let balRaw = await evalValue(pkg, 'BalanceOf', [address], 3500).catch(() => null);
+    if (balRaw == null) {
+      balRaw = await evalValue(pkg, 'BalanceOf', [`address("${address}")`], 2000).catch(() => null);
+    }
+    const bal = Number(balRaw || 0);
+    if (bal > 0) {
+      const maxTokens = Math.min(bal, 50);
+      for (let i = 0; i < maxTokens; i++) {
+        let tidRaw = await evalValue(pkg, 'TokenOfOwnerByIndex', [address, i], 3500).catch(() => null);
+        if (tidRaw == null) tidRaw = await evalValue(pkg, 'TokenOfOwnerByIndex', [`address("${address}")`, i], 2000).catch(() => null);
+        if (tidRaw == null) continue;
+        const tokenId = String(tidRaw);
+        // The realm's TokenURI takes the id as a string. Passing a bare 314 would be
+        // evaluated as a number literal and the realm would answer with nothing.
+        const tokenIdArg = `"${tokenId.replace(/[^\w.-]/g, '')}"`;
+        let tokenUri = await evalValue(pkg, 'TokenURI', [tokenIdArg], 3500).catch(() => null);
+        if (tokenUri == null) tokenUri = await evalValue(pkg, 'TokenURI', [tokenId], 2000).catch(() => null);
+        let name = `${collection.name} #${tokenId}`;
+        let image = collection.image || '';
+        let description = collection.description || '';
+        let attributes = [];
+        if (tokenUri && typeof tokenUri === 'string') {
+          const resolvedUri = ipfsUrl(tokenUri) || tokenUri;
+          if (resolvedUri.startsWith('http://') || resolvedUri.startsWith('https://')) {
+            try {
+              const metaRes = await fetch(resolvedUri, { signal: AbortSignal.timeout(3500) });
+              if (metaRes.ok) {
+                const meta = await metaRes.json();
+                if (meta.name) name = cleanText(meta.name, 100);
+                if (meta.image) image = ipfsUrl(meta.image) || meta.image;
+                if (meta.description) description = cleanText(meta.description, 500);
+                if (Array.isArray(meta.attributes)) attributes = meta.attributes;
+              }
+            } catch {}
+          }
+        }
+        items.push({
+          id: tokenId,
+          name,
+          image: ipfsUrl(image) || image || collection.image,
+          description,
+          owner: address,
+          priceUgnot: 0,
+          listed: false,
+          collectionName: collection.name,
+          collectionPath: pkg,
+          verified: !!collection.verified,
+          royaltyBps: collection.royaltyBps || 250,
+          preview: false,
+          attributes
+        });
+      }
+      if (items.length > 0) return items;
+    }
+  } catch {}
+  try {
+    const idsValue = await evalValue(pkg, 'TokensOf', [address], 3000).catch(() => '');
+    const ids = String(idsValue || '').split(',').filter((v) => /^\d+$/.test(v)).slice(0, 50);
+    if (ids.length) {
+      const details = await Promise.all(ids.map(async (id) => {
+        const [name, img, owner, price, listed] = await Promise.all([
+          evalValue(pkg, 'NameOf', [id], 3000).catch(() => ''),
+          evalValue(pkg, 'ImageOf', [id], 3000).catch(() => ''),
+          evalValue(pkg, 'GrcOwnerOf', [id], 3000).catch(() => address),
+          evalValue(pkg, 'PriceOf', [id], 3000).catch(() => 0),
+          evalValue(pkg, 'Listed', [id], 3000).catch(() => false)
+        ]);
+        return {
+          id,
+          name: cleanText(name, 100) || `${collection.name} #${id}`,
+          image: ipfsUrl(img) || img || collection.image,
+          owner: owner || address,
+          priceUgnot: num(price),
+          listed: listed === true || String(listed) === 'true',
+          collectionName: collection.name,
+          collectionPath: pkg,
+          verified: collection.verified,
+          royaltyBps: collection.royaltyBps,
+          preview: false
+        };
+      }));
+      items.push(...details.filter((t) => t.name));
+    }
+  } catch {}
+  return items;
+}
+
 app.get('/api/portfolio/:address', async (req, res) => {
   const address = String(req.params.address || '');
   if (!safeAddress(address)) return json(res, 400, { ok: false, error: 'Invalid Gno address.' });
   try {
     const { collections } = await getCollections();
+    const customRealm = toCollectionPath(req.query.customRealm || '');
+    const scanList = [...collections];
+    // Realms this server knows about but that are not (yet) in the public catalog:
+    // the pinned collection and the external projects it surfaces in the market.
+    // Without them a wallet that only holds those NFTs would look empty.
+    const knownRealms = [
+      { slug: 'moonbound', path: MOONBOUND_COLLECTION_PATH || 'gno.land/r/morrow/moonbound', name: 'GNO PUNK', verified: true, royaltyBps: 250 },
+      ...EXTERNAL_PROJECTS.map((p) => ({ slug: p.slug, path: p.realm, name: p.name, verified: true, royaltyBps: 250 }))
+    ];
+    for (const known of knownRealms) {
+      if (known.path && !scanList.some((c) => c.path === known.path)) scanList.push(known);
+    }
+    if (customRealm && !scanList.some((c) => c.path === customRealm)) {
+      scanList.push({
+        slug: slugOf(customRealm) || 'custom',
+        path: customRealm,
+        name: customRealm.split('/').pop()?.toUpperCase() || 'CUSTOM REALM',
+        verified: false,
+        royaltyBps: 250
+      });
+    }
     const tokens = []; const ownedCollections = [];
-    for (const collection of collections.slice(0, 80)) {
-      const idsValue = await evalValue(collection.path, 'TokensOf', [address]).catch(() => '');
-      const ids = String(idsValue || '').split(',').filter((v) => /^\d+$/.test(v)).slice(0, 400);
-      if (!ids.length) continue;
-      ownedCollections.push(collection);
-      const details = await Promise.all(ids.map(async (id) => {
-        const [name, image, owner, price, listed] = await Promise.all([
-          evalValue(collection.path, 'NameOf', [id]).catch(() => ''), evalValue(collection.path, 'ImageOf', [id]).catch(() => ''),
-          evalValue(collection.path, 'GrcOwnerOf', [id]).catch(() => address), evalValue(collection.path, 'PriceOf', [id]).catch(() => 0),
-          evalValue(collection.path, 'Listed', [id]).catch(() => false)
-        ]);
-        return { id, name: cleanText(name, 100), image: ipfsUrl(image) || image || collection.image, owner, priceUgnot: num(price), listed: listed === true || String(listed) === 'true', collectionName: collection.name, collectionPath: collection.path, verified: collection.verified, royaltyBps: collection.royaltyBps, preview: false };
-      }));
-      tokens.push(...details.filter((t) => t.name));
+    const scanned = await Promise.all(scanList.slice(0, 40).map(async (collection) => {
+      try {
+        const items = await getTokensForAddress(collection, address);
+        return { collection, items };
+      } catch {
+        return { collection, items: [] };
+      }
+    }));
+    for (const { collection, items } of scanned) {
+      if (items.length) {
+        ownedCollections.push(collection);
+        tokens.push(...items);
+      }
     }
     res.json({ ok: true, collections: ownedCollections, tokens });
   } catch (e) { res.json({ ok: true, collections: [], tokens: [], warning: cleanText(e.message, 240) }); }
@@ -558,9 +1002,24 @@ app.post('/api/report', writeLimiter, async (req, res) => {
   res.status(201).json({ ok: true, id });
 });
 
+async function octopinFile(buffer, filename, mime, timeoutMs = 45_000) {
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: mime }), filename);
+  const response = await fetch('https://upload.octopin.app/api/upload', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${OCTOPIN_API_KEY}` },
+    body: form,
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body?.ok || !body?.data?.cid) {
+    throw new Error(body?.error?.message || `Octopin upload failed (${response.status}).`);
+  }
+  return { cid: body.data.cid, gatewayUrl: `${OCTOPIN_GATEWAY}${body.data.cid}` };
+}
 app.post('/api/ipfs/image', writeLimiter, (req, res, next) => upload.single('file')(req, res, (e) => e ? next(e) : next()), async (req, res) => {
   try {
-    if (!PINATA_JWT) return json(res, 503, { ok: false, error: 'IPFS uploads are unavailable: configure PINATA_JWT on the server.' });
+    if (!PINATA_JWT && !OCTOPIN_API_KEY) return json(res, 503, { ok: false, error: 'IPFS uploads are unavailable: the server has no pinning credential.' });
     if (!req.file) return json(res, 400, { ok: false, error: 'Choose a supported image file.' });
     if (uploadCounter.day !== new Date().toISOString().slice(0, 10)) { uploadCounter.day = new Date().toISOString().slice(0, 10); uploadCounter.count = 0; }
     if (uploadCounter.count >= MAX_UPLOADS_PER_DAY) return json(res, 429, { ok: false, error: 'Daily upload quota reached; try again tomorrow.' });
@@ -570,31 +1029,45 @@ app.post('/api/ipfs/image', writeLimiter, (req, res, next) => upload.single('fil
       (mime === 'image/webp' && b.subarray(0,4).toString() === 'RIFF' && b.subarray(8,12).toString() === 'WEBP') ||
       (mime === 'image/gif' && ['GIF87a','GIF89a'].includes(b.subarray(0,6).toString()));
     if (!signatureOk) return json(res, 400, { ok: false, error: 'The image content signature does not match its file type.' });
-    const form = new FormData(); form.append('network', 'public'); form.append('name', cleanText(req.body?.name || req.file.originalname || 'morrow-artwork', 120));
-    form.append('file', new Blob([b], { type: mime }), path.basename(req.file.originalname || 'artwork.webp'));
-    const uploadResp = await fetch('https://uploads.pinata.cloud/v3/files', { method: 'POST', headers: { Authorization: `Bearer ${PINATA_JWT}` }, body: form, signal: AbortSignal.timeout(45000) });
-    const body = await uploadResp.json().catch(() => ({}));
-    if (!uploadResp.ok || !body?.data?.cid) return json(res, 502, { ok: false, error: cleanText(body?.error?.reason || body?.message || `Pinata upload failed (${uploadResp.status}).`, 220) });
+    let uploaded;
+    if (PINATA_JWT) {
+      const form = new FormData(); form.append('network', 'public'); form.append('name', cleanText(req.body?.name || req.file.originalname || 'morrow-artwork', 120));
+      form.append('file', new Blob([b], { type: mime }), path.basename(req.file.originalname || 'artwork.webp'));
+      const uploadResp = await fetch('https://uploads.pinata.cloud/v3/files', { method: 'POST', headers: { Authorization: `Bearer ${PINATA_JWT}` }, body: form, signal: AbortSignal.timeout(45000) });
+      const body = await uploadResp.json().catch(() => ({}));
+      if (!uploadResp.ok || !body?.data?.cid) return json(res, 502, { ok: false, error: cleanText(body?.error?.reason || body?.message || `Pinata upload failed (${uploadResp.status}).`, 220) });
+      uploaded = { cid: body.data.cid, gatewayUrl: `${PINATA_GATEWAY}${body.data.cid}` };
+    } else {
+      uploaded = await octopinFile(b, path.basename(req.file.originalname || 'artwork.webp'), mime);
+    }
     uploadCounter.count++;
-    const cid = body.data.cid; const uri = `ipfs://${cid}`; const gatewayUrl = `${PINATA_GATEWAY}${cid}`;
+    const cid = uploaded.cid; const uri = `ipfs://${cid}`; const gatewayUrl = uploaded.gatewayUrl;
     await mutateStore((store) => { store.uploads.push({ cid, name: cleanText(req.body?.name || req.file.originalname, 120), type: mime, size: b.length, time: new Date().toISOString() }); if (store.uploads.length > 2000) store.uploads = store.uploads.slice(-2000); });
     res.status(201).json({ ok: true, cid, uri, gatewayUrl, size: b.length, mimeType: mime });
   } catch (e) { next(e); }
 });
 app.post('/api/ipfs/metadata', writeLimiter, async (req, res) => {
   try {
-    if (!PINATA_JWT) return json(res, 503, { ok: false, error: 'IPFS metadata pinning is unavailable: configure PINATA_JWT on the server.' });
+    if (!PINATA_JWT && !OCTOPIN_API_KEY) return json(res, 503, { ok: false, error: 'IPFS metadata pinning is unavailable: the server has no pinning credential.' });
     const name = cleanText(req.body?.name, 100); const description = cleanText(req.body?.description, 1500); const image = String(req.body?.image || '').trim();
     const attributes = Array.isArray(req.body?.attributes) ? req.body.attributes.slice(0, 50).map((a) => ({ trait_type: cleanText(a?.trait_type, 100), value: cleanText(a?.value, 200) })) : [];
     if (!name || !image || !(/^ipfs:\/\/[a-zA-Z0-9]+/.test(image) || /^https:\/\//i.test(image))) return json(res, 400, { ok: false, error: 'Metadata needs a name and a valid public IPFS or HTTPS image URI.' });
-    const metadata = { name, description, image, attributes, external_url: 'https://morrow.market' };
-    const form = new FormData(); form.append('network', 'public'); form.append('name', `${name.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 80)}.json`); form.append('file', new Blob([JSON.stringify(metadata, null, 2)], { type: 'application/json' }), `${name.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 80)}.json`);
-    const uploadResp = await fetch('https://uploads.pinata.cloud/v3/files', { method: 'POST', headers: { Authorization: `Bearer ${PINATA_JWT}` }, body: form, signal: AbortSignal.timeout(30000) });
-    const body = await uploadResp.json().catch(() => ({}));
-    if (!uploadResp.ok || !body?.data?.cid) return json(res, 502, { ok: false, error: cleanText(body?.error?.reason || body?.message || `Pinata metadata upload failed (${uploadResp.status}).`, 220) });
-    const cid = body.data.cid; const uri = `ipfs://${cid}`;
-    await mutateStore((store) => { store.uploads.push({ cid, name: metadata.name, type: 'application/json', size: Buffer.byteLength(JSON.stringify(metadata)), time: new Date().toISOString() }); if (store.uploads.length > 2000) store.uploads = store.uploads.slice(-2000); });
-    res.status(201).json({ ok: true, cid, uri, gatewayUrl: `${PINATA_GATEWAY}${cid}`, metadata });
+    const metadata = { name, description, image, attributes, external_url: PUBLIC_URL };
+    const json = Buffer.from(JSON.stringify(metadata, null, 2), 'utf8');
+    const filename = `${name.replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 80)}.json`;
+    let uploaded;
+    if (PINATA_JWT) {
+      const form = new FormData(); form.append('network', 'public'); form.append('name', filename); form.append('file', new Blob([json], { type: 'application/json' }), filename);
+      const uploadResp = await fetch('https://uploads.pinata.cloud/v3/files', { method: 'POST', headers: { Authorization: `Bearer ${PINATA_JWT}` }, body: form, signal: AbortSignal.timeout(30000) });
+      const body = await uploadResp.json().catch(() => ({}));
+      if (!uploadResp.ok || !body?.data?.cid) return json(res, 502, { ok: false, error: cleanText(body?.error?.reason || body?.message || `Pinata metadata upload failed (${uploadResp.status}).`, 220) });
+      uploaded = { cid: body.data.cid, gatewayUrl: `${PINATA_GATEWAY}${body.data.cid}` };
+    } else {
+      uploaded = await octopinFile(json, filename, 'application/json');
+    }
+    const cid = uploaded.cid; const uri = `ipfs://${cid}`;
+    await mutateStore((store) => { store.uploads.push({ cid, name: metadata.name, type: 'application/json', size: json.length, time: new Date().toISOString() }); if (store.uploads.length > 2000) store.uploads = store.uploads.slice(-2000); });
+    res.status(201).json({ ok: true, cid, uri, gatewayUrl: uploaded.gatewayUrl, metadata });
   } catch (e) { json(res, 502, { ok: false, error: cleanText(e.message, 220) }); }
 });
 app.get('/api/contracts/collection-template', async (_req, res) => {

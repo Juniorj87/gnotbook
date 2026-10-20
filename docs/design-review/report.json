@@ -1,0 +1,95 @@
+{
+  "contract": "Gnotbook is a Gno.land collection marketplace/launchpad. First screen must show the real catalog and the mint schedule; the primary job is finding a collection and opening its mint page. Direction: refined technical, not playful — graphite neutral surfaces, hairline 1px rules, corners 2-4px (no pills, no large radii), one amber signal colour reserved for the primary action and live state, JetBrains Mono for every number, address and timestamp, Inter Tight for display, Inter for UI. Section headers carry a mono index (01 / NEXT MINTS). The left rail is 60px and expands to 224px on hover; under 980px it becomes an off-canvas drawer. Browse pages fill the viewport width; task pages (create form, settings) cap at 860/1080px so fields stay readable. Target viewports: 1440x900 and 390x844.",
+  "targetViewports": ["1440x900", "390x844"],
+  "accessibility": {
+    "status": "pass",
+    "evidence": "Keyboard focus is visible on every interactive element through the global :focus-visible rule (2px amber outline, 1px offset); a skip link precedes the topbar; the rail and settings side-nav carry aria-labels and the active link gets aria-current. Contrast checked on the rendered pages: body text #E9EBEE on #0A0B0D (~16:1), secondary #A7ADB7 on surface #121417 (~7:1), amber #F0B429 on #0A0B0D (~9:1), mint-price numerals #E9EBEE on the price tile. prefers-reduced-motion:reduce is present in styles.css and disables animation and transitions globally."
+  },
+  "responsive": {
+    "status": "pass",
+    "evidence": "At 390x844 the rail becomes an off-canvas drawer with a backdrop, the collection and mint grids collapse to one column, the hero arrows are hidden and the hero copy keeps 58px of bottom room for the dots. Measured documentElement.scrollWidth equals clientWidth at 390px (no horizontal overflow) after the topbar was constrained. At 1440x900 the browse pages use the full width, the create form caps at 860px and settings at 1080px, and the mint page keeps a 360px sticky mint box on the right."
+  },
+  "contentStates": {
+    "loading": {
+      "status": "pass",
+      "evidence": "A static boot skeleton (one wide bar plus four card placeholders) ships inside #mainContent, so the first paint keeps the page shape while /api/market is pending instead of showing a void. Captured with the market request held open — state-loading-1440x900.png."
+    },
+    "empty": {
+      "status": "pass",
+      "evidence": "With the default empty store the hero shows the empty stage copy ('Your collection headlines this slider', create/upcoming CTAs) and the shelf shows 'The shelf is waiting' with a create CTA. No fake collection is rendered. Captured — state-empty-1440x900.png."
+    },
+    "error": {
+      "status": "pass",
+      "evidence": "Validation failures surface a specific toast ('Symbol must contain 1–11 letters or numbers.') and the form keeps the entered values and the #create route. Captured — state-error-1440x900.png."
+    },
+    "partial": {
+      "status": "pass",
+      "evidence": "Collections without a mint date render 'Mint date not set' instead of a fabricated countdown, and collections without a cover fall back to a symbol placeholder. Captured — state-partial-1440x900.png."
+    },
+    "success": {
+      "status": "pass",
+      "evidence": "Saving a draft shows a confirmation toast naming the collection and the allowlist count, then navigates to Upcoming mints with the URL updated to #upcoming (route and hash stay in sync). Captured — state-success-1440x900.png."
+    },
+    "permission": {
+      "status": "pass",
+      "evidence": "Portfolio without a connected wallet states that Gnotbook never stores the key or seed phrase and offers a 'Connect Adena' action; no address is read and no private material is requested. Captured — state-permission-1440x900.png."
+    }
+  },
+  "renderedEvidence": [
+    {
+      "viewport": "1440x900",
+      "artifact": "view-explore-1440x900.png",
+      "observation": "Home: hero slider with the live Moonbound Keepers drop, mono status chips, amber primary CTA, indexed section headers (01 / NEXT MINTS) and the creator shelf below."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "view-mint-1440x900.png",
+      "observation": "Mint page: banner with overlapping title, hairline stat table, tabs and traits on the left, sticky mint box on the right with progress bar, 5 GNOT price, fee lines and the schedule."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "view-portfolio-1440x900.png",
+      "observation": "Portfolio with a connected wallet: native balance read from the chain (0.2839 GNOT), one Guardians edition rendered with its real metadata image, and the counts for NFTs, collections and tokens."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "state-empty-1440x900.png",
+      "observation": "Empty catalog: empty hero stage and the waiting shelf, both with a create action; no placeholder collections."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "state-loading-1440x900.png",
+      "observation": "Loading: the boot skeleton holds the page shape while the catalog request is pending."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "state-partial-1440x900.png",
+      "observation": "Partial data: cards without a mint date say so explicitly; status chips and supply numbers stay accurate."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "state-success-1440x900.png",
+      "observation": "Success: confirmation toast after saving a collection draft, with the Upcoming mints view behind it."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "state-error-1440x900.png",
+      "observation": "Error: specific validation toast over the create form, user input preserved."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "state-permission-1440x900.png",
+      "observation": "Permission boundary: portfolio explains self-custody and asks for a wallet connection instead of reading anything."
+    },
+    {
+      "viewport": "390x844",
+      "artifact": "view-explore-390x844.png",
+      "observation": "Mobile home: drawer entry button in the topbar, stacked hero copy, single-column cards, no horizontal scroll."
+    },
+    {
+      "viewport": "390x844",
+      "artifact": "view-upcoming-390x844.png",
+      "observation": "Mobile Upcoming: filter pills wrap, mint cards stack, clock icon and countdown stay legible at 390px."
+    }
+  ]
+}

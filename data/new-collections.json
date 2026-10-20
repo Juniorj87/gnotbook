@@ -1,0 +1,50 @@
+{
+  "network": "gno.land",
+  "currency": "GNOT",
+  "mint_price_gnot": 5,
+  "founder_reserve": 0,
+  "collections": [
+    {
+      "slug": "owl-collection",
+      "name": "OWL COLLECTION",
+      "symbol": "OWL",
+      "max_supply": 333,
+      "mint_price_gnot": 5,
+      "mint_price_ugnot": 5000000,
+      "founder_reserve": 0,
+      "image_base_uri": null,
+      "metadata_base_uri": null,
+      "ipfs_status": "PENDING",
+      "realm_path": null,
+      "launch_status": "NOT_DEPLOYED"
+    },
+    {
+      "slug": "neon-souls",
+      "name": "NEON SOULS",
+      "symbol": "NSOUL",
+      "max_supply": 333,
+      "mint_price_gnot": 5,
+      "mint_price_ugnot": 5000000,
+      "founder_reserve": 0,
+      "image_base_uri": null,
+      "metadata_base_uri": null,
+      "ipfs_status": "PENDING",
+      "realm_path": null,
+      "launch_status": "NOT_DEPLOYED"
+    },
+    {
+      "slug": "the-trees",
+      "name": "THE TREES",
+      "symbol": "TREES",
+      "max_supply": 333,
+      "mint_price_gnot": 5,
+      "mint_price_ugnot": 5000000,
+      "founder_reserve": 0,
+      "image_base_uri": null,
+      "metadata_base_uri": null,
+      "ipfs_status": "PENDING",
+      "realm_path": null,
+      "launch_status": "NOT_DEPLOYED"
+    }
+  ]
+}

@@ -10,12 +10,16 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
-    "check": "node --check server.mjs && node --check public/app.js && node --check public/admin.js && node --check scripts/preflight.mjs && node --check scripts/pin-nft-collection.mjs",
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/admin.js && node --check scripts/preflight.mjs && node --check scripts/build-collection.mjs && node --check scripts/pin-octopin.mjs && node --check scripts/pin-new-collections.mjs && node --check scripts/pin-three-collections.mjs && node --check scripts/make-release.mjs",
     "preflight": "node scripts/preflight.mjs",
     "test:unit": "node --test tests/*.mjs",
     "test": "npm run check && npm run preflight && npm run test:unit",
-    "pin:moonbound": "node scripts/pin-nft-collection.mjs",
-    "check:gno": "node scripts/check-gno.mjs"
+    "build:collection": "node scripts/build-collection.mjs",
+    "release": "node scripts/make-release.mjs",
+    "pin:octopin": "node scripts/pin-octopin.mjs",
+    "check:gno": "node scripts/check-gno.mjs",
+    "pin:new-collections": "node scripts/pin-three-collections.mjs",
+    "pin:three-collections": "node scripts/pin-three-collections.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

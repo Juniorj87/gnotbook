@@ -1,6 +1,7 @@
 // Morrow Marketplace collection template.
 // Independent registry. No third-party marketplace dependency.
-// A standard launch costs exactly 2,000 GNOT; public mints use exact configured GNOT prices.
+// A standard launch costs exactly 5 GNOT; the registry admin's own collections launch free.
+// Public mints use exact configured GNOT prices and cap each wallet at maxPublicMintsPerWallet.
 package __PACKAGE__
 
 import (
@@ -20,10 +21,13 @@ import (
 )
 
 const (
-	nativeDenom    = "ugnot"
-	maxSupplyBound = 1_000_000
-	maxRoyaltyBps  = 1000
-	protocolBps    = int64(250) // 2.5% buyer-paid sale fee, enforced by this contract.
+	nativeDenom       = "ugnot"
+	maxSupplyBound    = 1_000_000
+	maxRoyaltyBps     = 1000
+	maxFounderReserve = 333                      // bounded founder reserve; simulate launch gas before mainnet deployment
+	protocolBps       = int64(250)               // 2.5% buyer-paid sale fee, enforced by this contract.
+	// Public mint cap per wallet. Two editions each, so one buyer cannot take a whole fixed run.
+	maxPublicMintsPerWallet = 2
 )
 
 type item struct {
@@ -62,6 +66,7 @@ type auction struct {
 
 var (
 	items           avl.Tree
+	mintsByWallet   avl.Tree
 	offers          avl.Tree
 	auctions        avl.Tree
 	token           *grc721.Token
@@ -88,9 +93,9 @@ var (
 	slug            string
 )
 
-// Init is called atomically with the exact 2,000 GNOT launch fee attached.
+// Init is called atomically with the exact 5 GNOT launch fee attached.
 // The fee is forwarded to the Morrow registry, which forwards it to the configured treasury.
-func Init(cur realm, name, symbol, cover, collectionURI string, maxSupplyN int, mintPriceUgnot int64, royalty int64, imageBase, metadataBase string) {
+func Init(cur realm, name, symbol, cover, collectionURI string, maxSupplyN int, mintPriceUgnot int64, royalty int64, imageBase, metadataBase, founder string, founderReserve int) {
 	if !cur.IsCurrent() {
 		panic("morrow: stale or spoofed realm handle")
 	}
@@ -130,12 +135,25 @@ func Init(cur realm, name, symbol, cover, collectionURI string, maxSupplyN int, 
 	if (imageBase == "") != (metadataBase == "") {
 		panic("morrow: configure both image and metadata IPFS bases")
 	}
+	if founderReserve < 0 || founderReserve > maxFounderReserve {
+		panic("morrow: founder reserve must be 0-333")
+	}
+	if founderReserve > 0 {
+		if !address(founder).IsValid() {
+			panic("morrow: founder reserve needs a valid founder address")
+		}
+		if imageBase == "" || metadataBase == "" {
+			panic("morrow: founder reserve needs pinned edition bases")
+		}
+		if founderReserve >= maxSupplyN {
+			panic("morrow: founder reserve must leave editions for public mint")
+		}
+	}
 
 	slug = lastElem(cur.PkgPath())
 	if !validSlug(slug) {
 		panic("morrow: package path must end in a 2-11 character lowercase slug")
 	}
-	takeExact(registry.LaunchFee())
 
 	tok, led := grc721.NewToken(name, symbol, tokenSeq.Next(), cur)
 	token = tok
@@ -153,13 +171,37 @@ func Init(cur realm, name, symbol, cover, collectionURI string, maxSupplyN int, 
 	mintPrice = mintPriceUgnot
 	royaltyBps = int(royalty)
 	items = avl.Tree{}
+	mintsByWallet = avl.Tree{}
 	inited = true
 
-	bk := banker.NewBanker(banker.BankerTypeRealmSend, cur)
-	bk.SendCoins(self, registry.Address(), chain.Coins{{Denom: nativeDenom, Amount: registry.LaunchFee()}})
-	registry.CreditLaunchFee(cross(cur))
+	// The launch fee charges third-party creators once. The registry admin's own collections
+	// launch without it, so the operator never pays their own fee sink back to themselves.
+	launchFee := int64(0)
+	if !registry.IsAdmin(creator.String()) {
+		launchFee = registry.LaunchFee()
+	}
+	takeExact(launchFee)
+	if launchFee > 0 {
+		bk := banker.NewBanker(banker.BankerTypeRealmSend, cur)
+		bk.SendCoins(self, registry.Address(), chain.Coins{{Denom: nativeDenom, Amount: launchFee}})
+		registry.CreditLaunchFee(cross(cur))
+	}
 	registry.Register(cross(cur), name, symbol, cover, maxSupplyN, mintPriceUgnot, royalty, imageBaseURI, metadataBaseURI)
-	chain.Emit("Init", "creator", creator.String(), "slug", slug, "pkg", cur.PkgPath(), "launchFeeUgnot", strconv.FormatInt(registry.LaunchFee(), 10))
+	chain.Emit("Init", "creator", creator.String(), "slug", slug, "pkg", cur.PkgPath(), "launchFeeUgnot", strconv.FormatInt(launchFee, 10))
+
+	// Founder reserve: editions 1..founderReserve are minted to the founder address at launch for
+	// network gas only. They are real, numbered, transferable editions; public mint continues after them.
+	if founderReserve > 0 {
+		founderAddr := address(founder)
+		for i := 0; i < founderReserve; i++ {
+			id := nextID + 1
+			imageURI := editionURI(imageBaseURI, id, ".webp")
+			metadataURI := editionURI(metadataBaseURI, id, ".json")
+			mintedID := mintTo(cur, founderAddr, colName+" #"+pad4(id), imageURI, metadataURI)
+			writeTokenMeta(mintedID)
+			chain.Emit("FounderMint", "id", strconv.Itoa(mintedID), "owner", founder, "pkg", cur.PkgPath())
+		}
+	}
 }
 
 // Mint is creator-only for general collections. Fixed-edition collections use PublicMint instead.
@@ -181,7 +223,7 @@ func Mint(cur realm, name, imageURL, metadataURI string) int {
 }
 
 // PublicMint mints the next fixed edition. For Moonbound Keepers, edition n maps to
-// <imageBaseURI>/nnnn.webp and <metadataBaseURI>/nnnn.json, with 575 GNOT paid exactly.
+// <imageBaseURI>/nnnn.webp and <metadataBaseURI>/nnnn.json, with 5 GNOT paid exactly.
 // Every edition can be minted once only because IDs are sequential and the ledger is on-chain.
 func PublicMint(cur realm) int {
 	caller := requireUser(cur)
@@ -195,6 +237,14 @@ func PublicMint(cur realm) int {
 	if maxSupply > 0 && minted >= maxSupply {
 		panic("morrow: sold out")
 	}
+	callerKey := caller.String()
+	mintsSoFar := 0
+	if v := mintsByWallet.Get(callerKey); v != nil {
+		mintsSoFar = v.(int)
+	}
+	if mintsSoFar >= maxPublicMintsPerWallet {
+		panic("morrow: wallet mint limit reached")
+	}
 	id := nextID + 1
 	imageURI := editionURI(imageBaseURI, id, ".webp")
 	metadataURI := editionURI(metadataBaseURI, id, ".json")
@@ -204,6 +254,7 @@ func PublicMint(cur realm) int {
 	name := colName + " #" + pad4(id)
 	mintedID := mintTo(cur, caller, name, imageURI, metadataURI)
 	writeTokenMeta(mintedID)
+	mintsByWallet.Set(callerKey, mintsSoFar+1)
 	bk := banker.NewBanker(banker.BankerTypeRealmSend, cur)
 	bk.SendCoins(self, creator, chain.Coins{{Denom: nativeDenom, Amount: mintPrice}})
 	chain.Emit("PublicMint", "id", strconv.Itoa(mintedID), "owner", caller.String(), "priceUgnot", strconv.FormatInt(mintPrice, 10), "pkg", cur.PkgPath())
@@ -380,6 +431,16 @@ func ContractURI() string         { requireInit(); return colURI }
 func MintPrice() int64            { requireInit(); return mintPrice }
 func MaxSupply() int              { requireInit(); return maxSupply }
 func Minted() int                 { requireInit(); return minted }
+// PublicMintLimit is the per-wallet public mint cap, and MintsByWallet reports how many
+// editions a wallet has already minted, so a client can warn before gas is spent.
+func PublicMintLimit() int        { requireInit(); return maxPublicMintsPerWallet }
+func MintsByWallet(addr string) int {
+	requireInit()
+	if v := mintsByWallet.Get(addr); v != nil {
+		return v.(int)
+	}
+	return 0
+}
 func TotalSupply() int64          { requireInit(); return int64(minted) }
 func NextID() int                 { requireInit(); return nextID }
 func PriceOf(id int) int64        { return mustItem(id).price }
@@ -914,22 +975,6 @@ func CancelAuction(cur realm, auctionID int) {
 	a.status = "cancelled"
 	auctions.Set(strconv.Itoa(a.id), a)
 	chain.Emit("AuctionCancelled", "auction", strconv.Itoa(a.id), "token", strconv.Itoa(a.tokenID), "seller", caller.String(), "pkg", cur.PkgPath())
-}
-
-func ListOffers(tokenID int) string {
-	out := ""
-	offers.Iterate("", "", func(_ string, value any) bool {
-		o := value.(*offer)
-		if tokenID > 0 && o.tokenID != tokenID {
-			return false
-		}
-		if out != "" {
-			out += "\n"
-		}
-		out += strconv.Itoa(o.id) + "|" + strconv.Itoa(o.tokenID) + "|" + o.buyer.String() + "|" + strconv.FormatInt(o.amount, 10) + "|" + o.expiry.String() + "|" + o.status
-		return false
-	})
-	return out
 }
 
 func ListAuctions() string {

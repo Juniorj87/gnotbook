@@ -1,0 +1,38 @@
+{
+  "name": "NEON SOULS #0331",
+  "description": "Neon Souls is a collection of luminous digital spirits shaped by color, signal and memory. Edition #0331 of 333. Utility is not promised unless separately announced by the collection creator.",
+  "image": "ipfs://PENDING_IMAGE_CID/0331.webp",
+  "external_url": "https://gno.land/",
+  "attributes": [
+    {
+      "trait_type": "Spirit",
+      "value": "Afterglow"
+    },
+    {
+      "trait_type": "Eyes / Core",
+      "value": "Star Eyes"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Ultraviolet"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Common"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0331 / 333"
+    }
+  ],
+  "properties": {
+    "edition": 331,
+    "max_supply": 333,
+    "symbol": "NSOUL",
+    "mint_price_gnot": 5,
+    "founder_reserve": false,
+    "mint_policy": "public-mint",
+    "image_sha256": "aae8ac847d817aad6a76c4d13ff153ef3990b1515887cac5baf947c18f551d2f",
+    "schema": "morrow-collection-v1"
+  }
+}

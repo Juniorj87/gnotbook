@@ -1,48 +1,139 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#08080b">
-<meta name="description" content="Morrow — NFT marketplace for Gno.land. Collect, mint and trade editions through your Adena wallet. IPFS-pinned art, on-chain registry, no fake listings.">
-<title>Morrow — NFT marketplace on Gno.land</title>
+<meta name="theme-color" content="#0a1122">
+<meta name="description" content="Gnotbook — discover NFT collections and upcoming mints on Gno.land.">
+<title>Gnotbook — NFT Mintbook</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css">
-<script defer src="/app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css?v=20261022-flat-3">
+<script defer src="/app.js?v=20261022-flat-3"></script>
 </head>
 <body>
-<div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+<a class="skip-link" href="#mainContent">Skip to content</a>
+
+<!-- topbar -->
 <header class="topbar">
-  <a class="brand" href="#explore" aria-label="Morrow home">
-    <span class="brand-mark"><span></span></span>
-    <span class="brand-word">morrow<span class="brand-dot">.</span></span>
+ <div class="topbar-inner">
+  <button class="mobile-menu" id="mobileMenuBtn" data-action="open-menu" aria-label="Open menu">
+    <span></span><span></span><span></span>
+  </button>
+  <a class="brand" href="#explore" data-route="explore" aria-label="Gnotbook home">
+    <span class="brand-mark"><span></span><span></span><span></span><span></span></span>
+    <span class="brand-word">gnotbook<span class="brand-dot">.</span></span>
   </a>
-  <nav class="main-nav" aria-label="Main navigation">
-    <button class="nav-link active" data-route="explore">Explore</button>
-    <button class="nav-link" data-action="open-moonbound-drop">Drops</button>
-    <button class="nav-link" data-route="collections">Collections</button>
-    <button class="nav-link" data-route="activity">Activity</button>
-    <button class="nav-link" data-route="create">Create</button>
-  </nav>
-  <div class="header-actions">
-    <label class="search-pill"><span class="search-glyph">⌕</span><input id="globalSearch" type="search" placeholder="Search items, collections, creators" autocomplete="off"><kbd>/</kbd></label>
-    <button class="btn btn-portfolio" data-route="portfolio"><span class="tiny-grid">▦</span> Portfolio</button>
-    <button class="btn btn-dark" id="walletButton"><span class="wallet-dot"></span><span id="walletButtonText">Connect wallet</span></button>
-    <button class="mobile-menu" id="mobileMenu" aria-label="Toggle navigation">☰</button>
+  <div class="header-search">
+    <div class="search-shell">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" id="globalSearch" placeholder="Search collections, items…" aria-label="Search">
+    </div>
   </div>
+  <div class="header-actions">
+    <span id="networkStatusText" class="net-status"></span>
+    <button class="btn-network" id="networkSwitcherBtn" title="Network">
+      <span class="status-pulse"></span><span id="activeNetworkName">Gno.land</span>
+    </button>
+    <span id="headerStatus"><button class="btn btn-primary wallet-btn" id="walletButton"><span id="walletButtonText">Connect wallet</span></button></span>
+  </div>
+ </div>
 </header>
-<div class="network-strip" id="networkStrip"><span class="status-pulse"></span><span id="networkStatusText">Connecting to Gno.land…</span><span class="network-separator">·</span><span id="networkHeight">Live registry</span><a href="https://gnoscan.io/" target="_blank" rel="noreferrer">Gnoscan ↗</a></div>
-<main id="mainContent" class="main-shell" aria-live="polite">
-  <section class="loading-shell"><div class="loading-mark">m.</div><p>Gathering the good stuff…</p></section>
+
+<!-- icon rail: expands on hover (desktop), off-canvas drawer (mobile) -->
+<nav class="main-nav" id="mainNav" aria-label="Main navigation">
+  <div class="nav-links">
+    <a class="nav-link" href="#explore" data-route="explore">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-1.8 4.6-4.6 1.8 1.8-4.6z"/></svg>
+      <span class="rail-label">Explore</span>
+    </a>
+    <a class="nav-link" href="#upcoming" data-route="upcoming">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      <span class="rail-label">Upcoming</span>
+    </a>
+    <a class="nav-link" href="#collections" data-route="collections">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+      <span class="rail-label">Collections</span>
+    </a>
+    <a class="nav-link" href="#portfolio" data-route="portfolio">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h18v11a1 1 0 01-1 1H4a1 1 0 01-1-1z"/><path d="M8 8V6a4 4 0 018 0v2"/></svg>
+      <span class="rail-label">Portfolio</span>
+    </a>
+    <a class="nav-link" href="#market" data-route="market">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8l2-4h12l2 4M4 8h16M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8M9 12h6"/></svg>
+      <span class="rail-label">Market</span>
+    </a>
+    <a class="nav-link" href="#create" data-route="create">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      <span class="rail-label">Create collection</span>
+    </a>
+    <a class="nav-link" href="#activity" data-route="activity">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2.5-7 5 14 2.5-7H21"/></svg>
+      <span class="rail-label">Activity</span>
+    </a>
+    <a class="nav-link" href="#rewards" data-route="rewards">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      <span class="rail-label">Quests &amp; points</span>
+    </a>
+    <a class="nav-link" href="#settings" data-route="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12l2-1-2-4-2 .5a6 6 0 00-2-1.2L14.5 4h-5l-.5 2.3a6 6 0 00-2 1.2L5 7 3 11l2 1v2l-2-1"/><path d="M3 13v2M19 13v2M5 7l2-1M17 7l2 4"/> </svg>
+      <span class="rail-label">Settings &amp; profile</span>
+    </a>
+  </div>
+  <div class="nav-foot">
+    <span class="status-pulse"></span>
+    <span class="rail-label" id="railNetworkText">gnoland-1 · RPC ready</span>
+  </div>
+</nav>
+<button class="nav-backdrop" id="navBackdrop" data-action="close-menu" aria-hidden="true"></button>
+
+<main class="main-shell" id="mainContent">
+  <!-- first-paint state: replaced by the app as soon as the catalog arrives -->
+  <div class="boot" aria-hidden="true">
+    <div class="boot-bar"></div>
+    <div class="boot-cards"><i></i><i></i><i></i><i></i></div>
+  </div>
 </main>
+
 <footer class="site-footer">
-  <div class="footer-brand"><span class="brand-mark small"><span></span></span><strong>morrow.</strong><span class="footer-line"></span><span>A little more meaning in every collectible.</span></div>
-  <div class="footer-links"><a href="https://gno.land/" target="_blank" rel="noreferrer">Gno.land ↗</a><a href="https://gnoscan.io/" target="_blank" rel="noreferrer">Gnoscan ↗</a><a href="https://adena.app/" target="_blank" rel="noreferrer">Adena ↗</a><a href="https://guardians.family/" target="_blank" rel="noreferrer">Guardians ↗</a></div>
-  <div class="footer-note">Non-custodial by design. Your keys never leave Adena.</div>
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <span class="brand-mark"><span></span><span></span><span></span></span>
+      <div>
+        <b>Gnotbook</b>
+        <p>The mintbook of the Gno.land realm. Build a collection, publish the drop, keep it honest.</p>
+      </div>
+    </div>
+    <div>
+      <span class="tiny-label">Marketplace</span>
+      <div class="footer-links">
+        <a class="footer-link" href="#explore" data-route="explore">Explore</a>
+        <a class="footer-link" href="#market" data-route="market">Market</a>
+        <a class="footer-link" href="#upcoming" data-route="upcoming">Upcoming mints</a>
+        <a class="footer-link" href="#collections" data-route="collections">Collections</a>
+        <a class="footer-link" href="#portfolio" data-route="portfolio">Portfolio</a>
+      </div>
+    </div>
+    <div>
+      <span class="tiny-label">Creators</span>
+      <div class="footer-links">
+        <a class="footer-link" href="#create" data-route="create">Create collection</a>
+        <a class="footer-link" href="#activity" data-route="activity">Activity</a>
+        <a class="footer-link" href="#rewards" data-route="rewards">Quests &amp; points</a>
+        <a class="footer-link" href="#settings" data-route="settings">Settings</a>
+      </div>
+    </div>
+    <div>
+      <span class="tiny-label">Elsewhere</span>
+      <div class="footer-socials" id="footerSocials"></div>
+    </div>
+  </div>
+  <div class="footer-line">Gnotbook · built for the Gno.land realm · on-chain actions require Adena wallet</div>
 </footer>
-<div id="modalHost"></div>
+
+<!-- hosts for transient UI -->
 <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+<div id="modalHost"></div>
 </body>
 </html>

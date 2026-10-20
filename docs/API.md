@@ -5,10 +5,10 @@ Base URL: `http://127.0.0.1:4173` (or your deployed host). All `/api/*` routes a
 ## Public
 
 - `GET /healthz` — `{ ok, uptimeSeconds, chainId }`.
-- `GET /api/config` — safe public config, RPC/registry status, Moonbound params. No secrets.
+- `GET /api/config` — safe public config, RPC/registry status and GNO PUNK parameters. No secrets.
 - `GET /api/market` — `{ ok, collections, listings, warning, registryPath, featuredCollectionPath }`.
 - `GET /api/collection-items?pkg=<realm>&offset=0&limit=24` — paginated items.
-- `GET /api/traits?collection=moonbound` — pinned trait aggregates (Moonbound only).
+- `GET /api/traits?collection=moonbound` — pinned trait aggregates (GNO PUNK only).
 - `GET /api/realm-read?pkg=<registered realm>&func=<allowlisted getter>&arg=...` — bounded read.
 - `GET /api/wallet/:address/balances` — Gno bank balances.
 - `GET /api/portfolio/:address` — registered collections and NFTs owned by the address.

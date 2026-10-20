@@ -1,0 +1,38 @@
+{
+  "name": "OWL COLLECTION #0167",
+  "description": "A nocturnal society of owls, each with distinct plumage, eyes, markings and relics. Edition #0167 of 333. Utility is not promised unless separately announced by the collection creator.",
+  "image": "ipfs://PENDING_IMAGE_CID/0167.webp",
+  "external_url": "https://gno.land/",
+  "attributes": [
+    {
+      "trait_type": "Spirit",
+      "value": "Ember Owl"
+    },
+    {
+      "trait_type": "Eyes / Core",
+      "value": "Halo Eyes"
+    },
+    {
+      "trait_type": "Aura",
+      "value": "Astral Hood"
+    },
+    {
+      "trait_type": "Rarity",
+      "value": "Common"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0167 / 333"
+    }
+  ],
+  "properties": {
+    "edition": 167,
+    "max_supply": 333,
+    "symbol": "OWL",
+    "mint_price_gnot": 5,
+    "founder_reserve": false,
+    "mint_policy": "public-mint",
+    "image_sha256": "d76e2b48ee24128284d8b832f2f9415acb7bb3061c1c7fc7ce8cf9222f8fb5e6",
+    "schema": "morrow-collection-v1"
+  }
+}

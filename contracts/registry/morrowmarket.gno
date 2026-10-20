@@ -1,5 +1,5 @@
 // Morrow Marketplace on-chain registry.
-// Independent of third-party marketplace realms. Collection launch fee: exactly 2,000 GNOT.
+// Independent of third-party marketplace realms. Collection launch fee: exactly 5 GNOT.
 package morrowmarket
 
 import (
@@ -12,7 +12,7 @@ import (
 
 const (
 	nativeDenom    = "ugnot"
-	launchFeeFixed = int64(2_000_000_000) // 2,000 GNOT; GNOT uses 1e6 ugnot.
+	launchFeeFixed = int64(5_000_000) // 5 GNOT; GNOT uses 1e6 ugnot.
 	maxNameLen     = 64
 	maxSymbolLen   = 11
 	maxSupplyBound = 1_000_000
@@ -142,6 +142,11 @@ func MarketplaceFeeBps() int64 { return 250 }
 func LaunchFee() int64         { return launchFeeFixed }
 func CollectionCount() int     { requireInit(); return bySlug.Size() }
 
+// IsAdmin reports whether an address is the registry admin, i.e. the operator who deployed
+// this registry. The 5 GNOT launch fee exists to charge third-party creators; the
+// operator's own collections launch without it.
+func IsAdmin(addr string) bool { requireInit(); return addr == admin.String() }
+
 // FeaturedCollection returns the most recently registered Morrow collection package path.
 func FeaturedCollection() string { requireInit(); return featuredPkg }
 
@@ -162,7 +167,7 @@ func CreditLaunchFee(cur realm) {
 	}
 	now := bankUgnot()
 	if now < seenBank || now-seenBank != launchFeeFixed {
-		panic("morrow registry: exact 2000 GNOT launch fee required")
+		panic("morrow registry: exact 5 GNOT launch fee required")
 	}
 	pending.Set(pkg, true)
 	bk := banker.NewBanker(banker.BankerTypeRealmSend, cur)
@@ -190,7 +195,7 @@ func Register(cur realm, name, symbol, cover string, maxSupply int, mintPrice, r
 	if !validSlug(slug) {
 		panic("morrow registry: invalid collection slug")
 	}
-	if !pending.Has(pkg) {
+	if !pending.Has(pkg) && !IsAdmin(creatorCall.Address().String()) {
 		panic("morrow registry: launch fee not settled")
 	}
 	if byPkg.Has(pkg) || bySlug.Has(slug) {
@@ -302,7 +307,7 @@ func Render(_ string) string {
 	if !inited {
 		return "# Morrow Marketplace registry\n\nCall Init with the public treasury address.\n"
 	}
-	return "# Morrow Marketplace registry\n\nLaunch fee: 2000 GNOT\nFee sink: " + feeSink.String() + "\nCollections: " + strconv.Itoa(bySlug.Size()) + "\n\n" + ListCollections()
+	return "# Morrow Marketplace registry\n\nLaunch fee: 5 GNOT\nFee sink: " + feeSink.String() + "\nCollections: " + strconv.Itoa(bySlug.Size()) + "\n\n" + ListCollections()
 }
 func requireInit() {
 	if !inited {

@@ -1,0 +1,79 @@
+{
+    "customCollections":  [
+                              {
+                                  "mintPriceUgnot": 5000000,
+                                  "minted":  873,
+                                  "mintStartAt":  "2026-10-19T12:00:00Z",
+                                  "revealed":  true,
+                                  "verified":  true,
+                                  "mintType":  "whitelist",
+                                  "name":  "Moonbound Keepers",
+                                  "creator":  "g1keeper…addr",
+                                  "cover":  "/assets/art/moonbound-keepers.webp",
+                                  "symbol":  "MOON",
+                                  "maxSupply":  1000,
+                                  "slug":  "moonbound",
+                                  "image":  "/assets/art/moonbound-keepers.webp",
+                                  "path":  "gno.land/r/morrow/moonbound",
+                                  "mintEnabled":  true,
+                                  "description":  "1,000 lunar keepers, minted on the Gno.land realm."
+                              },
+                              {
+                                  "mintPriceUgnot": 3000000,
+                                  "minted":  2,
+                                  "revealed":  true,
+                                  "verified":  true,
+                                  "mintType":  "free",
+                                  "name":  "Neon Souls",
+                                  "creator":  "g1neon…addr",
+                                  "cover":  "/assets/art/neon-souls-preview.webp",
+                                  "symbol":  "NEON",
+                                  "maxSupply":  7777,
+                                  "slug":  "neon-souls",
+                                  "image":  "/assets/art/neon-souls-preview.webp",
+                                  "path":  "gno.land/r/morrow/neonsouls",
+                                  "mintEnabled":  true,
+                                  "description":  "Electric street-wear identities for the night city of the realm."
+                              },
+                              {
+                                  "mintPriceUgnot": 2000000,
+                                  "minted":  19,
+                                  "revealed":  true,
+                                  "verified":  true,
+                                  "mintType":  "free",
+                                  "name":  "Owl Watch",
+                                  "creator":  "g1owl…addr",
+                                  "cover":  "/assets/art/owl-preview.webp",
+                                  "symbol":  "OWL",
+                                  "maxSupply":  1000,
+                                  "slug":  "owl-watch",
+                                  "image":  "/assets/art/owl-preview.webp",
+                                  "path":  "gno.land/r/morrow/owlwatch",
+                                  "mintEnabled":  true,
+                                  "description":  "Dusk watchers. A quiet collection minted byte by byte."
+                              },
+                              {
+                                  "mintPriceUgnot": 1000000,
+                                  "minted":  1000,
+                                  "revealed":  true,
+                                  "verified":  true,
+                                  "mintType":  "free",
+                                  "name":  "Sun Orbit",
+                                  "creator":  "g1sun…addr",
+                                  "cover":  "/assets/art/sun-orbit.webp",
+                                  "symbol":  "ORBT",
+                                  "maxSupply":  1000,
+                                  "slug":  "sun-orbit",
+                                  "image":  "/assets/art/sun-orbit.webp",
+                                  "path":  "gno.land/r/morrow/sunorbit",
+                                  "mintEnabled":  false,
+                                  "description":  "Solar cycles cast in collectible orbits."
+                              }
+                          ],
+    "whitelists":  {
+
+                   },
+    "verifiedPaths":  [
+
+                      ]
+}

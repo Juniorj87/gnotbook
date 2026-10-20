@@ -1,32 +1,54 @@
-# Morrow Marketplace — Test Report
+# Morrow — test report (2026-10-20)
 
-## Automated
+## Automated — PASS
 
-- `npm run check`: syntax check of `server.mjs`, `public/app.js`, `public/admin.js`, `scripts/preflight.mjs`, `scripts/pin-nft-collection.mjs` — PASS.
-- `npm run preflight`: 1111 images + 1111 metadata, JSON valid, image signatures, hashes, fee constants, no obsolete third-party deps — PASS.
-- `npm run test:unit`: 8 tests — PASS (healthz, config secrets, traits 1111/7 groups, traits 404, realm-read restriction x2, collection-items 400, market shape, sale-total math).
+```
+npm test
+  npm run check      # node --check for server, app, admin, preflight, build, pin, archive
+  npm run preflight  # 1,000 images + 1,000 JSON, manifest, archive, secrets
+  npm run test:unit  # 28 tests
+```
 
-## Browser (manual, this session)
+Result: **28/28 tests passed**, exit code 0.
 
-- All routes render distinct pages; 0 console errors; 0 failed requests.
-- Wallet modal, favorite persistence (`localStorage ["0003"]`), locked tile → item page verified.
-- Faked-market buy flow: `saleTotal` totals correct; checkout modal shows `10.25 GNOT`; confirm-buy reaches `sendTx` → "Connect Adena before signing a transaction."
-- Collection page: facets (7 groups, 77 checkboxes), sort, tabs, rarity distribution verified against raw metadata files.
-- Item page: 7 real traits from `metadata/0024.json`; art stays locked for unminted edition.
-- Creator studio: launch-cost and launch-rules panels render; honest disabled states.
+Preflight output:
+
+- 1,000 unique WebP images + 1,000 verified metadata files = 2,000 files (Octopin cap 2,000).
+- Both `ipfs://` directory bases present; manifest checksums and token mapping verified.
+- 111 archived editions / 224 ZIP entries, outside the upload directories.
+- Founder reserve 333, 250 GNOT launch, 5 GNOT mint, 2.5% sale fee and read-only mainnet defaults checked in source.
+- No Octopin key or Pinata JWT present in `public/`, `nft-collection/`, `data/` or the archive.
+
+The test suite includes server and UI tests: healthz & API health checks, config secret hygiene, traits endpoints, realm-read allowlist, market endpoints, manifest checks, fee math (2.5%), navigation routes, cache busting, route persistence across history, Afterglow visual system, floating item cards, Guardians feature, progressive Punk gallery, admin launch fee waivers, creator studio registry deployment, per-wallet mint cap gating, Adena connection resilience, Adena contract call formatting, and multi-collection mint support (Owl, Trees, Neon Souls).
+
+## IPFS — PASS
+
+The pin script fetched all 2,000 objects back from `gateway.octopin.app` and compared SHA-256. A separate spot check returned HTTP 200 for:
+
+- `bafybeiafu75cyf6crciag6nxtbg42i6wz2uqshwvg2yhi2fc6eexb75zim/0001.webp`
+- `bafybeigrcymvrv5nvl7ay5sakrdxsjf5uxc2ejxhhlph5r3rbvdcyljbfe/0001.json`
+
+Octopin reports **2,000 / 2,000 files** on the Free plan.
+
+## Headless Chrome — PASS
+
+Chrome via the DevTools protocol, real server at `http://127.0.0.1:4173`.
+
+| Viewport | Horizontal overflow | Broken images | Console errors | Failed requests |
+|---|---|---|---|---|
+| 1440×1100 | none | 0 | 0 | 0 |
+| 1024×900 | none | 0 | 0 | 0 |
+| 768×1000 | none | 0 | 0 | 0 |
+| 390×844 | none | 0 | 0 | 0 |
+| 360×800 | none | 0 | 0 | 0 |
+
+Routes rendered: Explore (`DISCOVER RARE DIGITAL COLLECTIBLES`), Market, Collections, Activity, Portfolio, Create (`Creator Studio`), item `GNO PUNK #0001` with 7 traits and an Octopin-hosted image. `/admin` exposes the diagnostics panel and loaded real chain, pinning and manifest data; the public header contains no technical strip.
+
+Screenshots: `docs/screenshots/home-1440.png`, `docs/screenshots/home-390.png`, `docs/shot-explore.png`, `docs/shot-create.png`, `docs/shot-collection.png`, `docs/shot-item.png`. Raw metrics: `docs/screenshots/browser-audit.json`.
 
 ## Not tested
 
-- Gno contract compilation (no toolchain in environment).
-- On-chain mint/buy/cancel (no deployed realm, no funded wallet).
-- IPFS pinning with real CIDs (no `PINATA_JWT`).
-- PostgreSQL path (no DB instance).
-- Offers/auctions (not implemented).
-
-## Commands
-
-```
-npm ci
-npm test
-npm start
-```
+- Gno contract compilation (no toolchain in this environment).
+- On-chain launch, mint, buy, list and cancel (no deployed realm, no funded Adena wallet, no owner confirmation).
+- A 1,111-edition pin (requires a paid Octopin plan above 2,000 files).
+- PostgreSQL paths (no database instance).

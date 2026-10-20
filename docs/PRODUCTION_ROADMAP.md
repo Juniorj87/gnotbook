@@ -34,3 +34,4 @@
 - IPFS gives a stable content identifier; it does not guarantee that content is honest or licensed.
 - Have a documented dispute/report, trademark/impersonation, stolen art, prohibited content, scam-wallet and moderation workflow.
 - Connect Guardians only after the project provides a confirmed realm path and mint/transfer API. Never mark a planned mint as live.
+- The founder reserve is minted by `Init` for network gas only. Treat those editions as real supply: they are numbered, owned and transferable from the launch block.

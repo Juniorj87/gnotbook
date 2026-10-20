@@ -1,40 +1,44 @@
 {
-  "name": "Moonbound Keepers #0462",
-  "description": "An edition in Moonbound Keepers, an original fantasy collectible series for Gno.land. Utility at launch is collectible identity and profile display; any future holder benefits will be announced explicitly and are not guaranteed. No airdrop, yield, or financial return is promised.",
-  "image": "ipfs://IMAGE_DIRECTORY_CID/0462.webp",
-  "external_url": "https://morrow.market",
+  "name": "GNO PUNK #0462",
+  "description": "GNO PUNK is a 1,000-piece pixel-art identity collection native to the Gno.land ecosystem. Edition #0462 is part of the public run (editions #0334–#1000). Ownership and rarity are collectible metadata only; future value or utility is not guaranteed.",
+  "image": "ipfs://bafybeiafu75cyf6crciag6nxtbg42i6wz2uqshwvg2yhi2fc6eexb75zim/0462.webp",
+  "external_url": "https://gno.land/",
   "attributes": [
     {
-      "trait_type": "Keeper",
-      "value": "Briar Sage"
+      "trait_type": "Archetype",
+      "value": "BLOCK RAT"
     },
     {
       "trait_type": "Realm",
-      "value": "Briarwood"
-    },
-    {
-      "trait_type": "Aura",
-      "value": "Wildwood"
-    },
-    {
-      "trait_type": "Relic",
-      "value": "Branch Scepter"
-    },
-    {
-      "trait_type": "Edition",
-      "value": "0462 / 1111"
-    },
-    {
-      "trait_type": "Frame",
-      "value": "Filigree"
-    },
-    {
-      "trait_type": "Palette",
-      "value": "Sage"
+      "value": "Foundry"
     },
     {
       "trait_type": "Rarity",
-      "value": "Epic"
+      "value": "Uncommon"
+    },
+    {
+      "trait_type": "Hair",
+      "value": "Cap"
+    },
+    {
+      "trait_type": "Accessory",
+      "value": "None"
+    },
+    {
+      "trait_type": "Edition",
+      "value": "0462 / 1000"
+    },
+    {
+      "trait_type": "Mint Tier",
+      "value": "Public Mint"
     }
-  ]
+  ],
+  "properties": {
+    "edition": 462,
+    "max_supply": 1000,
+    "founder_reserve": false,
+    "mint_policy": "public-mint",
+    "image_sha256": "b38e4050f71fe05a4f735ff666c5dcb41ab7177f1d39da4b329d4e1c7de14431",
+    "schema": "morrow-nft-v1"
+  }
 }
