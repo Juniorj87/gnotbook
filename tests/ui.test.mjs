@@ -18,8 +18,8 @@ test('desktop navigation exposes the requested marketplace sections', () => {
 });
 
 test('frontend assets use a cache-busting version so deployed UI changes are fetched', () => {
-  assert.match(html, /styles\.css\?v=20261022-flat-5/);
-  assert.match(html, /app\.js\?v=20261022-flat-5/);
+  assert.match(html, /styles\.css\?v=20261022-flat-6/);
+  assert.match(html, /app\.js\?v=20261022-flat-6/);
 });
 
 test('navigation preserves route state across refresh and browser history', () => {

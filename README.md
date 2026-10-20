@@ -8,6 +8,9 @@ The public brand is **Gnotbook**; the on-chain contracts and the treasury keep t
 
 - **Live:** https://gnotbook.vercel.app
 - **Source:** https://github.com/Juniorj87/gnotbook
+- **Built on Gno.land** — the chain, the language, the ABCI and the reference contracts are the work of the
+  Gno.land project: **[github.com/gnolang](https://github.com/gnolang)**. Gnotbook is an independent
+  marketplace *for* that chain; it does not fork or redistribute it.
 
 ---
 
@@ -160,3 +163,21 @@ database.
 - Transactions stay disabled until the registry, treasury and network flag are configured.
 - The public catalog starts empty on purpose. `data/demo-store.json` holds four fictional collections
   (fake addresses) used only for UI review.
+
+## Upstream and credits
+
+Gnotbook stands on the work of the **Gno.land project** — the chain, the language, the ABCI query
+interface, the wallet conventions and the reference contracts:
+
+- **Gno.land** — [github.com/gnolang](https://github.com/gnolang) · the language and the chain
+- **gno** (the language implementation) — [github.com/gnolang/gno](https://github.com/gnolang/gno)
+- **Adena** — the Gno.land wallet used for every signature
+- **Keplr** — the Cosmos/AtomOne wallet, for the IBC path
+- **IPFS / Pinata / Octopin** — content-addressed storage for artwork and metadata
+
+What Gnotbook adds on top: the marketplace application, the registry and collection contracts in
+`contracts/`, the chain reader, the creator studio and the design system. The contracts follow the
+Gno.land contract conventions; they are not a fork of anything in `gnolang`.
+
+If you are from the Gno.land team and want this listed in the ecosystem — say so, and it will be.
+
