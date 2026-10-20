@@ -381,12 +381,31 @@ async function readBalances(address) {
   const result = await abciQuery(`bank/balances/${address}`);
   return parseBalances(result.data || '{}');
 }
+// Neon and other managed Postgres hand out a pooled URL with `channel_binding=require`,
+// which node-postgres cannot negotiate. Strip it and force TLS instead of failing later.
+function pgConnectionOptions() {
+  const raw = String(process.env.DATABASE_URL || '');
+  let connectionString = raw;
+  let ssl;
+  try {
+    const url = new URL(raw);
+    url.searchParams.delete('channel_binding');
+    const sslMode = String(url.searchParams.get('sslmode') || '').toLowerCase();
+    const wantsSsl = ['require', 'prefer', 'verify-ca', 'verify-full'].includes(sslMode)
+      || ['1', 'true', 'yes'].includes(String(process.env.PGSSL || '').toLowerCase());
+    connectionString = url.toString();
+    if (wantsSsl) ssl = { rejectUnauthorized: false };
+  } catch {
+    ssl = /^(true|1)$/i.test(process.env.PGSSL || 'false') ? { rejectUnauthorized: false } : undefined;
+  }
+  return { connectionString, ssl };
+}
 async function readStore() {
   if (process.env.DATABASE_URL) {
     try {
       if (!pgPool) {
         const { Pool } = await import('pg');
-        pgPool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: /^(true|1)$/i.test(process.env.PGSSL || 'false') ? { rejectUnauthorized: false } : undefined, max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 5000 });
+        pgPool = new Pool({ ...pgConnectionOptions(), max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 5000 });
         await pgPool.query('CREATE TABLE IF NOT EXISTS morrow_store (id integer PRIMARY KEY CHECK (id=1), data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())');
         await pgPool.query('INSERT INTO morrow_store (id,data) VALUES (1,$1) ON CONFLICT (id) DO NOTHING', [JSON.stringify(emptyStore())]);
       }
