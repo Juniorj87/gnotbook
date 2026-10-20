@@ -474,7 +474,11 @@ async function verifyConfirmedAction(address, txHash) {
 }
 
 app.disable('x-powered-by');
-app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
+// "1", "true" and "yes" all mean one proxy hop. Behind a CDN (Vercel) the client
+// address arrives in X-Forwarded-For, and a rate limiter without trust proxy
+// throws instead of limiting.
+const TRUST_PROXY = ['1', 'true', 'yes'].includes(String(process.env.TRUST_PROXY || '').toLowerCase());
+app.set('trust proxy', TRUST_PROXY ? 1 : false);
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
   contentSecurityPolicy: { directives: {
@@ -487,8 +491,14 @@ app.use(helmet({
 }));
 app.use(express.json({ limit: '1mb', strict: true }));
 app.use(express.urlencoded({ extended: false, limit: '32kb' }));
-const generalLimiter = rateLimit({ windowMs: 60_000, limit: 240, standardHeaders: 'draft-7', legacyHeaders: false });
-const writeLimiter = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false });
+// A rate limiter must never be the reason an API call fails: if the client
+// address cannot be determined, fall back to the socket address.
+function clientKey(req) {
+  try { return req.ip || req.socket?.remoteAddress || 'unknown'; }
+  catch { return 'unknown'; }
+}
+const generalLimiter = rateLimit({ windowMs: 60_000, limit: 240, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: clientKey });
+const writeLimiter = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: clientKey });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: 1 }, fileFilter: (_req, file, cb) => {
   const allowed = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
   if (!allowed.has(file.mimetype)) return cb(new Error('Only PNG, JPEG, WEBP and GIF images are accepted. SVG and HTML uploads are disabled.'));
