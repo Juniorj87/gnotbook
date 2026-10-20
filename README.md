@@ -118,10 +118,19 @@ frontend is served from the same process as static assets.
 Two things matter on a serverless host:
 
 - **The store needs a writable target.** The local filesystem is read-only there, so `DATABASE_URL`
-  (Postgres) is the way to persist collections. Without it the catalog stays empty and collection creation
-  returns an explicit error instead of failing silently.
+  (Postgres) is the way to persist collections. The current deployment uses **Neon** (Postgres 18,
+  Frankfurt, free tier, scale-to-zero): one row in `morrow_store` holds the whole catalogue as JSONB.
+  Without it the catalog stays empty and collection creation returns an explicit error instead of
+  failing silently.
 - **Secrets stay in the project settings, never in git.** `.env` is ignored; the deployment takes the same
   variables through the platform's environment configuration.
+
+The connection string is cleaned before it reaches the driver: `channel_binding=require` is removed
+(node-postgres cannot negotiate it) and the server certificate is verified, with one transparent retry
+over an encrypted but unverified connection if a provider's chain does not validate.
+
+Locally the app keeps using its own JSON file store, so a local run never writes into the deployed
+database.
 
 ## Limits, stated plainly
 
