@@ -89,8 +89,16 @@ in their own Pinata or Octopin account, and hands over the CIDs:
   public gateway needs no credential;
 - a CID may point at a file inside a folder (`bafy…/0001.json`), which is how a creator references one
   edition of a pinned collection;
+- **Bulk artist packs** are prepared entirely in the browser: up to 1,000 PNG/JPEG/WebP images are sorted,
+  numbered and packaged into an `images/` ZIP; a second `metadata/` ZIP is generated only after the image
+  directory CID is known. The artist pins the two folders separately, then the UI checks the first image,
+  first edition JSON and collection JSON before carrying both root CIDs into the launch form;
 - the collection record then carries the creator's `imageBaseURI` and `metadataBaseURI`, and the on-chain
-  `Init` call receives exactly those bases.
+  `Init` call receives exactly those bases and the founder arguments required by the contract.
+
+The bulk tool does not send hundreds of megabytes through the server, does not ask artists for IPFS API
+keys, and does not mint 1,000 tokens in one transaction. The current contract mints one sequential edition
+per `PublicMint` transaction and caps each wallet at two mints.
 
 The server only ever *reads* what the creator pinned. It never receives a storage key, so a public
 deployment can host creators without spending the operator's storage quota.
@@ -118,6 +126,7 @@ refresh and a static host.
 
 The UI is described in [docs/DESIGN.md](docs/DESIGN.md); the system internals in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the chain-side rules in [docs/ON-CHAIN.md](docs/ON-CHAIN.md).
+For the creator-side multi-edition flow, follow [docs/ARTIST_BULK_PUBLISHING.md](docs/ARTIST_BULK_PUBLISHING.md).
 
 ### 8. Checks
 

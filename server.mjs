@@ -35,8 +35,8 @@ const MOONBOUND_COLLECTION_PATH = cleanPkgPath(process.env.MOONBOUND_COLLECTION_
 const MOONBOUND_MINT_PRICE_UGNOT = 5_000_000;
 const MOONBOUND_MAX_SUPPLY = 1000;
 const PUBLIC_URL = String(process.env.MORROW_PUBLIC_URL || 'https://gno.land/').trim();
-const SOCIAL_X = /^https:\/\/[^\s]+$/i.test(String(process.env.MORROW_X_URL || '').trim()) ? String(process.env.MORROW_X_URL).trim() : 'https://x.com/gnoland';
-const SOCIAL_GITHUB = /^https:\/\/[^\s]+$/i.test(String(process.env.MORROW_GITHUB_URL || '').trim()) ? String(process.env.MORROW_GITHUB_URL).trim() : 'https://github.com/gnolang/gno';
+const SOCIAL_X = /^https:\/\/[^\s]+$/i.test(String(process.env.MORROW_X_URL || '').trim()) ? String(process.env.MORROW_X_URL).trim() : 'https://x.com/Soulpureaux';
+const SOCIAL_GITHUB = /^https:\/\/[^\s]+$/i.test(String(process.env.MORROW_GITHUB_URL || '').trim()) ? String(process.env.MORROW_GITHUB_URL).trim() : 'https://github.com/Juniorj87/gnotbook';
 const ADMIN_TOKEN = String(process.env.MORROW_ADMIN_TOKEN || '');
 const verifiedPaths = new Set((process.env.VERIFIED_COLLECTION_PATHS || '').split(',').map(cleanPkgPath).filter(Boolean));
 const STORE_PATH = process.env.MORROW_STORE_PATH
@@ -381,6 +381,9 @@ function parseOpenItems(value, collection) {
 async function getMarket(chain = DEFAULT_CHAIN) {
   const { collections, warning, featuredCollectionPath = '' } = await getCollections(chain);
   const listingSets = await Promise.all(collections.map(async (c) => {
+    // A saved creator draft is visible in the public catalog, but it does not
+    // have a deployed realm yet. Do not waste an RPC timeout querying it.
+    if (c.launchStatus === 'DRAFT' || !c.onchain || !c.path) return [];
     try {
       const raw = await evalValue(c.path, 'ListOpen', [], 9000, chain).catch(() => '');
       return parseOpenItems(raw, c);
@@ -859,18 +862,26 @@ app.post('/api/collections/create', writeLimiter, async (req, res) => {
     const imageCid = cleanCid(req.body?.imageCid);
     const metadataCid = cleanCid(req.body?.metadataCid);
     const imageBaseCid = cleanCid(req.body?.imageBaseCid);
-    for (const [label, value] of [['imageCid', imageCid], ['metadataCid', metadataCid], ['imageBaseCid', imageBaseCid]]) {
-      if (value && !isCid(value)) return json(res, 400, { ok: false, error: `The ${label} is not a valid CID (letters and digits only).` });
+    const metadataBaseCid = cleanCid(req.body?.metadataBaseCid);
+    for (const [label, value, validator] of [
+      ['imageCid', imageCid, isCidRef], ['metadataCid', metadataCid, isCidRef],
+      ['imageBaseCid', imageBaseCid, isCid], ['metadataBaseCid', metadataBaseCid, isCid]
+    ]) {
+      if (value && !validator(value)) return json(res, 400, { ok: false, error: `The ${label} is not a valid IPFS CID or safe file path.` });
     }
+    if (Boolean(imageBaseCid) !== Boolean(metadataBaseCid)) return json(res, 400, { ok: false, error: 'Fixed-edition collections need both image and metadata directory CIDs.' });
+    if (imageBaseCid && (!imageCid.startsWith(`${imageBaseCid}/`) || !metadataCid.startsWith(`${metadataBaseCid}/`))) return json(res, 400, { ok: false, error: 'Artwork and collection metadata file paths must be inside their matching IPFS directories.' });
     const readGateway = IPFS_READ_GATEWAYS()[0];
     const pinnedImageUrl = imageCid ? `${readGateway}${imageCid}` : '';
     const maxSupply = Math.max(1, Math.min(1_000_000, Number(req.body?.maxSupply) || 1000));
-    const mintPriceUgnot = Math.max(0, Number(req.body?.mintPriceUgnot) || 5_000_000);
     const royaltyBps = Math.max(0, Math.min(1000, Number(req.body?.royaltyBps) || 250));
     const creator = cleanText(req.body?.creator, 100);
     const description = cleanText(req.body?.description, 1000);
     const txHash = cleanText(req.body?.txHash, 100);
     const mintType = String(req.body?.mintType || 'paid').toLowerCase() === 'free' ? 'free' : 'paid';
+    const rawMintPrice = Number(req.body?.mintPriceUgnot);
+    const mintPriceUgnot = mintType === 'free' ? 0 : Math.max(0, Number.isFinite(rawMintPrice) ? rawMintPrice : 5_000_000);
+    if (imageBaseCid && (mintType !== 'paid' || mintPriceUgnot <= 0)) return json(res, 400, { ok: false, error: 'Fixed-edition public mint requires a positive paid mint price.' });
     const website = cleanText(req.body?.website, 300);
     if (website && !/^https?:\/\/\S+$/i.test(website)) return json(res, 400, { ok: false, error: 'Website link must start with http:// or https://.' });
     const mintStartAtRaw = cleanText(req.body?.mintStartAt, 40);
@@ -895,7 +906,8 @@ app.post('/api/collections/create', writeLimiter, async (req, res) => {
       name, symbol, image: pinnedImageUrl || image,
       cover: pinnedImageUrl || image,
       imageBaseURI: imageBaseCid ? `ipfs://${imageBaseCid}` : (imageCid ? `ipfs://${imageCid}` : ''),
-      metadataBaseURI: metadataCid ? `ipfs://${metadataCid}` : '',
+      metadataBaseURI: metadataBaseCid ? `ipfs://${metadataBaseCid}` : '',
+      imageCid, metadataCid, imageBaseCid, metadataBaseCid,
       pinnedBy: imageCid || metadataCid ? 'creator' : '',
       maxSupply, minted: 0, mintPriceUgnot: mintType === 'free' ? 0 : mintPriceUgnot, royaltyBps,
       creator: creator || TREASURY, verified: false, external: false,
@@ -1162,6 +1174,7 @@ const IPFS_READ_GATEWAYS = () => [
   'https://ipfs.io/ipfs/'
 ];
 const isCid = value => /^[a-zA-Z0-9]{20,120}$/.test(String(value || '').trim());
+const isCidRef = value => { const parts = String(value || '').trim().split('/').filter(Boolean); return isCid(parts[0]) && parts.slice(1).every(part => /^[a-zA-Z0-9._-]{1,120}$/.test(part) && part !== '.' && part !== '..'); };
 const cleanCid = value => String(value || '').trim().replace(/^ipfs:\/\//i, '');
 
 // Resolves a CID on the public gateways and reports what is behind it.
@@ -1174,11 +1187,15 @@ async function resolveCid(cid, kind, subPath = '') {
       if (!res.ok) continue;
       const contentType = String(res.headers.get('content-type') || '');
       const buffer = await res.arrayBuffer();
-      const text = new TextDecoder().decode(buffer.slice(0, 4096));
-      const looksJson = contentType.includes('json') || text.trim().startsWith('{');
+      const decoded = new TextDecoder().decode(buffer);
+      const probe = decoded.slice(0, 4096);
+      const looksJson = contentType.includes('json') || probe.trim().startsWith('{');
       if (looksJson) {
+        // Metadata is small by design; parse the complete document, not a 4 KB
+        // preview that can silently break valid artist files with many traits.
+        if (buffer.byteLength > 256 * 1024) continue;
         let meta = null;
-        try { meta = JSON.parse(text); } catch {}
+        try { meta = JSON.parse(decoded); } catch {}
         if (!meta) continue;
         return {
           ok: true, kind: 'metadata', cid, path: subPath, url, gateway,
@@ -1205,7 +1222,9 @@ app.post('/api/ipfs/verify', writeLimiter, async (req, res) => {
   const [cid, ...rest] = raw.split('/').filter(Boolean);
   const subPath = rest.join('/');
   const kind = ['image', 'metadata', 'directory'].includes(req.body?.kind) ? req.body.kind : 'image';
-  if (!isCid(cid)) return json(res, 400, { ok: false, error: 'A CID is a long base58 string (letters and digits). Copy it without the ipfs:// prefix.' });
+  if (!isCid(cid) || rest.some(part => !/^[a-zA-Z0-9._-]{1,120}$/.test(part) || part === '.' || part === '..')) {
+    return json(res, 400, { ok: false, error: 'Enter a valid IPFS CID and a safe file path, without traversal segments.' });
+  }
   try {
     const found = await resolveCid(cid, kind, subPath);
     if (!found) return json(res, 404, { ok: false, error: 'This CID does not resolve on the public gateways yet. Pinning can take a moment — try again in a minute.' });

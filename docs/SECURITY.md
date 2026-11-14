@@ -19,7 +19,7 @@
 
 - General: 240 req/min per IP on `/api/`.
 - Writes: 30 req/min per IP.
-- Uploads: multer `files: 1`, `fileSize` ≤ `MAX_UPLOAD_MB` (default 15), MIME allowlist PNG/JPEG/WEBP/GIF (SVG/HTML refused).
+- Legacy server upload endpoint: one file per request, `fileSize` ≤ `MAX_UPLOAD_MB` (default 15), MIME allowlist PNG/JPEG/WEBP/GIF (SVG/HTML refused). Bulk artist preparation runs locally in the browser and does not send artwork or IPFS credentials to this server.
 
 ## Realm-read restriction
 
@@ -27,7 +27,7 @@
 
 ## On-chain safety
 
-- Writes disabled unless `GNOLAND_*_TRADING_ENABLED=true` and the registry's `FeeSink()` matches `MORROW_TREASURY_ADDRESS` and `LaunchFee()==250_000_000` and `MarketplaceFeeBps()==250`.
+- Writes disabled unless `GNOLAND_*_TRADING_ENABLED=true` and the registry's `FeeSink()` matches `MORROW_TREASURY_ADDRESS` and `LaunchFee()==5_000_000` and `MarketplaceFeeBps()==250`.
 - Fee is settled inside the collection realm's `Buy`; no separate UI fee transaction.
 - `verifiedPaths` (env + store) gates whether a collection is marked verified; unverified collections block purchases in the UI.
 

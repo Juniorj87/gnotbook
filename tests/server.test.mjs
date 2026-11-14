@@ -9,6 +9,7 @@ import { join } from 'node:path';
 // Static server-source invariants that do not need a running process.
 test('the public catalog defaults to an empty store and the server parses whitelists itself', async () => {
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8');
+  assert.match(server, /JSON\.parse\(decoded\)/, 'IPFS metadata verification must parse the complete JSON document');
   assert.ok(server.includes('const DEFAULT_COLLECTIONS = []'), 'no bundled demo collections may ship');
   assert.match(server, /function parseWhitelistText\(/);
   assert.match(server, /10_000|10000/, 'whitelist size cap must be enforced');
@@ -129,6 +130,16 @@ test('collection-items requires a valid package', async () => {
   assert.equal(r.status, 400);
 });
 
+test('IPFS verification rejects unsafe traversal segments before fetching a gateway', async () => {
+  const r = await fetch(`${BASE}/api/ipfs/verify`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cid: 'bafybeiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/../secret.json', kind: 'metadata' })
+  });
+  assert.equal(r.status, 400);
+  const j = await r.json();
+  assert.match(j.error, /safe file path/i);
+});
+
 test('config exposes a usable founder reserve', async () => {
   const r = await fetch(`${BASE}/api/config`);
   assert.equal(r.status, 200);
@@ -224,6 +235,44 @@ test('save collection draft accepts schedule, mint type and a deduplicated white
   assert.equal(j.collection.launchStatus, 'DRAFT');
   assert.equal(j.collection.mintStartAt, future);
   assert.equal(j.whitelist.count, 2, 'malformed and duplicate lines are dropped');
+});
+
+
+test('fixed-edition collection drafts keep separate image and metadata directory CIDs and file paths', async () => {
+  const imageRoot = 'bafybeiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const metadataRoot = 'bafybeibbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const r = await fetch(`${BASE}/api/collections/create`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Numbered Artist Drop', symbol: 'NAD', slug: 'numbered-drop', creator: '',
+      mintType: 'paid', mintPriceUgnot: 5_000_000, maxSupply: 2, royaltyBps: 200,
+      imageCid: `${imageRoot}/0001.webp`, metadataCid: `${metadataRoot}/collection.json`,
+      imageBaseCid: imageRoot, metadataBaseCid: metadataRoot
+    })
+  });
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  assert.equal(j.collection.imageBaseURI, `ipfs://${imageRoot}`);
+  assert.equal(j.collection.metadataBaseURI, `ipfs://${metadataRoot}`);
+  assert.equal(j.collection.imageCid, `${imageRoot}/0001.webp`);
+  assert.equal(j.collection.metadataCid, `${metadataRoot}/collection.json`);
+  assert.equal(j.collection.mintPriceUgnot, 5_000_000);
+});
+
+test('fixed-edition collection drafts reject incomplete or mismatched IPFS base pairs', async () => {
+  const root = 'bafybeiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const invalid = [
+    { imageBaseCid: root },
+    { imageBaseCid: root, metadataBaseCid: 'bafybeibbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', imageCid: `${root}/0001.webp`, metadataCid: 'bafybeicccccccccccccccccccccccccccccc/collection.json' },
+    { imageBaseCid: root, metadataBaseCid: 'bafybeibbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', imageCid: `${root}/0001.webp`, metadataCid: 'bafybeibbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/collection.json', mintType: 'free', mintPriceUgnot: 0 }
+  ];
+  for (let i = 0; i < invalid.length; i++) {
+    const body = { name: 'Invalid Bulk Drop', symbol: 'IBD', slug: `invalid-bulk-${i}`, ...invalid[i] };
+    const r = await fetch(`${BASE}/api/collections/create`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    assert.equal(r.status, 400);
+  }
 });
 
 test('draft save rejects a past schedule, a bad website and an all-invalid whitelist', async () => {

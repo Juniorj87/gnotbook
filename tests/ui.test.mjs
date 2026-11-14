@@ -18,8 +18,9 @@ test('desktop navigation exposes the requested marketplace sections', () => {
 });
 
 test('frontend assets use a cache-busting version so deployed UI changes are fetched', () => {
-  assert.match(html, /styles\.css\?v=20261022-flat-7/);
-  assert.match(html, /app\.js\?v=20261022-flat-7/);
+  assert.match(html, /styles\.css\?v=20261114-artist-1/);
+  assert.match(html, /artist-pack\.js\?v=20261114-artist-1/);
+  assert.match(html, /app\.js\?v=20261114-artist-1/);
 });
 
 test('navigation preserves route state across refresh and browser history', () => {
@@ -97,7 +98,7 @@ test('item page uses the LEGO art stage with plastic shadow', () => {
 test('homepage shows the server-backed Upcoming Mints and excludes the legacy featured drop block', () => {
   assert.match(app, /function renderUpcoming\(/);
   assert.match(app, /function renderMintCalendar\(\)\{\s*return renderUpcoming\(\);\s*\}/);
-  assert.match(app, /renderExplore\(\)\{[\s\S]{0,400}return `\$\{note\}\$\{renderHero\(\)\}\$\{renderUpcomingStrip\(\)\}/);
+  assert.match(app, /renderExplore\(\)\{[\s\S]{0,600}return `\$\{note\}\$\{renderHero\(\)\}\$\{renderCreatorPath\(\)\}\$\{renderUpcomingStrip\(\)\}/);
   // The old demo entry points (genesis drop grid, GNO PUNK launch panel) must not be
   // reachable from the homepage assembly anymore.
   assert.doesNotMatch(app, /renderDrops\(\)|renderUnrevealedGrid\(\)|renderGenesisLaunch\(\)/);
@@ -160,6 +161,8 @@ test('the creator form saves a server draft with schedule, website, mint type an
   assert.match(app, /const coverFile=\$\('#collectionCover'\)\?\.files\?\.\[0\]/);
   assert.match(app, /id="launchCollectionButton"/);
   assert.match(app, /id="confirmRights"/);
+  assert.match(app, /transactionMessage\(pkgPath,'Init',\[[^\]]*imageBaseCid[^\]]*metadataBaseCid[^\]]*state\.wallet\.address,'0'\],dueSend\)/,
+    'Init must pass both separate IPFS directory bases, the founder wallet and founderReserve to match the Gno signature');
 });
 
 test('an Adena session that already approved this site still connects', () => {
@@ -179,4 +182,20 @@ test('marketplace actions keep their wiring with the honest mint dispatcher', ()
 test('public minting is generalized for any registered or active collection slug', () => {
   assert.match(app, /async function mintPublicEdition\(slug\)/);
   assert.match(app, /transactionMessage\(pkg,'PublicMint',\[\],`\$\{mintPriceUgnot\}ugnot`\)/);
+});
+
+
+test('bulk artist publishing prepares paired IPFS folders and keeps uploads in the browser', () => {
+  assert.match(html, /artist-pack\.js/);
+  assert.match(app, /function renderBatchStudio\(\)/);
+  assert.match(app, /data-action=\"batch-build-metadata\"/);
+  assert.match(app, /data-action=\"batch-verify\"/);
+  assert.match(app, /data-action=\"batch-use-package\"/);
+  assert.match(app, /metadataBaseCid/);
+  assert.match(app, /Regenerate metadata after editing the collection name/);
+  assert.match(app, /website:b\.website/);
+  assert.match(app, /PublicMint/);
+  assert.match(server, /const isCidRef =/);
+  assert.match(server, /metadataBaseURI: metadataBaseCid/);
+  assert.match(css, /\.bulk-layout\{/);
 });

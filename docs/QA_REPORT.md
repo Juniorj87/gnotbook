@@ -13,7 +13,7 @@ Run `npm test`. The automated project preflight validates JavaScript syntax, req
 7. Verify server/registry fee-sink mismatch blocks purchases and collection launch.
 8. Confirm newly registered collection becomes the homepage feature on refresh and does not require hard-coded front-end deployment.
 9. Review published code and metadata on the explorer and IPFS gateways; ensure no secret is sent to the browser.
-10. Only after the above, enable mainnet writes. Mainnet launch requires 250 GNOT plus gas; each primary GNO PUNK mint is 5 GNOT plus gas.
+10. Only after the above, enable mainnet writes. Mainnet launch requires 5 GNOT plus gas; each primary GNO PUNK mint is 5 GNOT plus gas.
 
 ## Not tested here
 

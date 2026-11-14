@@ -1,54 +1,41 @@
-# Morrow — test report (2026-10-20)
+# Morrow — verification report (2026-11-14)
 
-## Automated — PASS
+## Automated checks — PASS
 
+Commands run against the updated source:
+
+```text
+npm run check       # syntax checks for server, frontend, admin and scripts
+npm run preflight   # NFT corpus, metadata, checksums and source invariants
+npm run test:unit   # 49 unit/integration/source tests
 ```
-npm test
-  npm run check      # node --check for server, app, admin, preflight, build, pin, archive
-  npm run preflight  # 1,000 images + 1,000 JSON, manifest, archive, secrets
-  npm run test:unit  # 28 tests
-```
 
-Result: **28/28 tests passed**, exit code 0.
+Result: **49/49 tests passed**, exit code 0.
 
-Preflight output:
+The preflight verified:
 
-- 1,000 unique WebP images + 1,000 verified metadata files = 2,000 files (Octopin cap 2,000).
-- Both `ipfs://` directory bases present; manifest checksums and token mapping verified.
-- 111 archived editions / 224 ZIP entries, outside the upload directories.
-- Founder reserve 333, 250 GNOT launch, 5 GNOT mint, 2.5% sale fee and read-only mainnet defaults checked in source.
-- No Octopin key or Pinata JWT present in `public/`, `nft-collection/`, `data/` or the archive.
+- 1,000 unique WebP images and 1,000 valid metadata JSON files (2,000 source objects).
+- The pinned image/metadata directory references and local manifest checksums.
+- 111 archived editions / 224 ZIP entries outside the upload directories.
+- The 5 GNOT collection launch fee, 5 GNOT GNO PUNK mint price, 2.5% sale fee, registry fee-sink gate, founder reserve cap and read-only mainnet defaults.
 
-The test suite includes server and UI tests: healthz & API health checks, config secret hygiene, traits endpoints, realm-read allowlist, market endpoints, manifest checks, fee math (2.5%), navigation routes, cache busting, route persistence across history, Afterglow visual system, floating item cards, Guardians feature, progressive Punk gallery, admin launch fee waivers, creator studio registry deployment, per-wallet mint cap gating, Adena connection resilience, Adena contract call formatting, and multi-collection mint support (Owl, Trees, Neon Souls).
+New tests cover the browser-side artist package generator, separate image/metadata directory CIDs, fixed-edition draft validation, launch argument shape and a catalog that does not perform RPC reads for un-deployed drafts.
 
-## IPFS — PASS
+## Artist bulk workflow — implemented, not live-pinned here
 
-The pin script fetched all 2,000 objects back from `gateway.octopin.app` and compared SHA-256. A separate spot check returned HTTP 200 for:
+The Creator Studio now prepares up to 1,000 PNG/JPEG/WebP source images locally in the browser, converts PNG/JPEG to WebP, renumbers editions, and produces two distinct ZIP packages: `images/` and `metadata/`. The metadata package links each numbered edition to the image directory CID. The UI asks the artist to pin both folders with their own IPFS provider and verifies the first image, first edition JSON and collection JSON through public gateways before copying the CIDs into collection setup.
 
-- `bafybeiafu75cyf6crciag6nxtbg42i6wz2uqshwvg2yhi2fc6eexb75zim/0001.webp`
-- `bafybeigrcymvrv5nvl7ay5sakrdxsjf5uxc2ejxhhlph5r3rbvdcyljbfe/0001.json`
+The builder is not a server-side multi-file upload service and does not store artists' IPFS API keys. It does not verify every one of the 1,000 files; it checks the first edition and collection metadata as a pre-launch gate.
 
-Octopin reports **2,000 / 2,000 files** on the Free plan.
+## IPFS corpus
 
-## Headless Chrome — PASS
+The bundled GNO PUNK corpus has 1,000 images and 1,000 edition metadata files. The static preflight checks object counts, WebP signatures, JSON validity and local manifest checksums. It does not constitute a fresh provider-side pinning job in this verification session.
 
-Chrome via the DevTools protocol, real server at `http://127.0.0.1:4173`.
+## Not verified in this environment
 
-| Viewport | Horizontal overflow | Broken images | Console errors | Failed requests |
-|---|---|---|---|---|
-| 1440×1100 | none | 0 | 0 | 0 |
-| 1024×900 | none | 0 | 0 | 0 |
-| 768×1000 | none | 0 | 0 | 0 |
-| 390×844 | none | 0 | 0 | 0 |
-| 360×800 | none | 0 | 0 | 0 |
+- The Gno contracts were not compiled with the official Gno toolchain.
+- No live Adena signing, realm deployment, mint, trade or fee settlement was run.
+- The updated UI could not be rendered in Chromium here because browser navigation was blocked by the execution environment. The source-level UI checks and JavaScript syntax checks passed, but this is not a substitute for a real desktop/mobile visual QA pass.
+- No independent smart-contract security audit was performed.
 
-Routes rendered: Explore (`DISCOVER RARE DIGITAL COLLECTIBLES`), Market, Collections, Activity, Portfolio, Create (`Creator Studio`), item `GNO PUNK #0001` with 7 traits and an Octopin-hosted image. `/admin` exposes the diagnostics panel and loaded real chain, pinning and manifest data; the public header contains no technical strip.
-
-Screenshots: `docs/screenshots/home-1440.png`, `docs/screenshots/home-390.png`, `docs/shot-explore.png`, `docs/shot-create.png`, `docs/shot-collection.png`, `docs/shot-item.png`. Raw metrics: `docs/screenshots/browser-audit.json`.
-
-## Not tested
-
-- Gno contract compilation (no toolchain in this environment).
-- On-chain launch, mint, buy, list and cancel (no deployed realm, no funded Adena wallet, no owner confirmation).
-- A 1,111-edition pin (requires a paid Octopin plan above 2,000 files).
-- PostgreSQL paths (no database instance).
+The current collection contract mints fixed editions one at a time through `PublicMint`, with a two-mint per-wallet limit. The artist pack builder makes the collection assets and metadata ready; it does not create a batch-mint transaction.

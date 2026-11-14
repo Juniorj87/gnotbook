@@ -17,5 +17,5 @@
 - The existing on-chain collection creation and secondary-market transaction code remains intact; the redesign removes the preloaded featured mint experience rather than pretending on-chain actions have been deployed or verified.
 
 ## Verification
-- `npm test`: **28/28 passing** after updating checks to match the new product direction.
+- Historical result: 28/28 passed at the time of that report. For the current source and latest verification count, see [docs/TEST_REPORT.md](docs/TEST_REPORT.md).
 - JavaScript syntax check and project preflight pass.

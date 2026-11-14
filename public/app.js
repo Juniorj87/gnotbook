@@ -21,7 +21,9 @@ const state = {
   itemMeta:null, itemId:null, itemPkg:null, activePortfolioTab:'nfts',
   gallery:{query:'',rarity:'all',traitType:'all',traitValue:'all',sort:'ed',status:'all',limit:6},
   trending:'all', mintsUsed:0, upcomingFilter:'all', upcomingSort:'time-asc',
-  activeNetwork:'gnoland'
+  activeNetwork:'gnoland',
+  batch:{records:[],imageBaseCid:'',metadataBaseCid:'',overrides:null,imagesZip:null,metadataZip:null,verified:false,error:'',name:'',description:'',website:'',royaltyBps:200},
+  batchPackage:null
 };
 
 // The network the interface talks to. 'gnoland' and 'onyx' are Gno.land chains
@@ -366,11 +368,13 @@ function renderHero(){
   if(!featured.length){
     clearInterval(sliderTimer);sliderTimer=null;
     return `<section class="hero-slider"><div class="hero-empty"><div class="hero-empty-card">
-      <div class="hero-empty-grid" aria-hidden="true"><span class="hero-empty-brick"></span><span class="hero-empty-brick"></span><span class="hero-empty-brick"></span></div>
-      <div class="eyebrow" style="justify-content:center;margin-bottom:10px"><span class="eyedot"></span> The stage is empty — on purpose</div>
-      <h2>Your collection headlines this slider</h2>
-      <p>Gnotbook starts with no demo drops. The first minted collection fills this stage automatically.</p>
-      <div class="hero-cta" style="justify-content:center"><button class="btn btn-accent" data-route="create">Create collection ↗</button><button class="btn btn-outline" data-route="upcoming">Upcoming mints</button></div>
+      <div class="hero-empty-copy"><div class="hero-empty-grid" aria-hidden="true"><span class="hero-empty-brick"></span><span class="hero-empty-brick"></span><span class="hero-empty-brick"></span></div>
+        <div class="eyebrow" style="margin-bottom:10px"><span class="eyedot"></span> A creator-first NFT marketplace</div>
+        <h2>Make your next collection impossible to miss.</h2>
+        <p>Discover on-chain art from the Gno.land community, or bring your own collection to the marketplace. No demo drops, no made-up activity — just real work from real creators.</p>
+        <div class="hero-cta"><button class="btn btn-accent" data-route="create">Open Creator Studio ↗</button><button class="btn btn-outline" data-route="collections">Explore collections</button></div>
+      </div>
+      <div class="hero-art-mosaic" aria-hidden="true"><div class="mosaic-tile mosaic-a"><span>01</span><b>CREATE</b></div><div class="mosaic-tile mosaic-b"><span>02</span><b>PIN</b></div><div class="mosaic-tile mosaic-c"><span>03</span><b>PUBLISH</b></div><div class="mosaic-stamp">GNO<br>LAND<br><i>✳</i></div></div>
     </div></div></section>`;
   }
   if(sliderIdx>=featured.length)sliderIdx=0;
@@ -565,11 +569,15 @@ function renderCollectionCards(colls){
   return `<div class="collection-grid">${cards}</div>`;
 }
 
+function renderCreatorPath(){
+  if((state.market.collections||[]).length)return '';
+  return `<section class="creator-path"><div class="creator-path-head"><div><div class="eyebrow"><span class="eyedot"></span> Made for artists</div><h2>From folder to on-chain collection.</h2><p>A clear publishing path for artists who want to release a full numbered series.</p></div><button class="btn btn-outline" data-route="create">Start a collection ↗</button></div><div class="creator-path-steps"><article><span>01</span><h3>Prepare</h3><p>Select up to 1,000 works. Morrow numbers files and prepares WebP artwork plus metadata packages.</p></article><article><span>02</span><h3>Pin</h3><p>Publish image and metadata folders to IPFS with your own provider, then verify the first editions.</p></article><article><span>03</span><h3>Publish</h3><p>Connect Adena, deploy the collection realm and invite collectors to mint numbered editions.</p></article></div></section>`;
+}
 function renderExplore(){
   const note=state.market&&state.market.warning
     ? `<div class="inline-info" style="margin-bottom:22px"><strong>${escapeHTML(chainLabel())}:</strong> ${escapeHTML(state.market.warning)}</div>`
     : '';
-  return `${note}${renderHero()}${renderUpcomingStrip()}${renderExploreCollections()}${renderListings()}`;
+  return `${note}${renderHero()}${renderCreatorPath()}${renderUpcomingStrip()}${renderExploreCollections()}${renderListings()}`;
 }
 
 async function openCollection(path,fromHistory=false){
@@ -858,7 +866,8 @@ function cidValues(){
   return {
     imageCid:($('#pinImageCid')?.value||'').trim().replace(/^ipfs:\/\//i,''),
     metadataCid:($('#pinMetadataCid')?.value||'').trim().replace(/^ipfs:\/\//i,''),
-    imageBaseCid:($('#pinImageBaseCid')?.value||'').trim().replace(/^ipfs:\/\//i,'')
+    imageBaseCid:($('#pinImageBaseCid')?.value||'').trim().replace(/^ipfs:\/\//i,''),
+    metadataBaseCid:($('#pinMetadataBaseCid')?.value||'').trim().replace(/^ipfs:\/\//i,'')
   };
 }
 async function verifyCid(cid,kind){
@@ -867,15 +876,21 @@ async function verifyCid(cid,kind){
 async function verifyCids(){
   const out=$('#cidCheckResult');
   if(!out)return;
-  const {imageCid,metadataCid}=cidValues();
-  if(!imageCid||!metadataCid){out.textContent='Both the artwork CID and the metadata CID are needed.';out.className='pin-result warn';return;}
-  out.textContent='Checking on the public gateway…';out.className='pin-result';
+  const {imageCid,metadataCid,imageBaseCid,metadataBaseCid}=cidValues();
+  if(!imageCid||!metadataCid){out.textContent='Both the artwork file CID and collection metadata file CID are required.';out.className='pin-result warn';return;}
+  if(Boolean(imageBaseCid)!==Boolean(metadataBaseCid)){out.textContent='Fixed editions need both the image and metadata directory CIDs.';out.className='pin-result warn';return;}
+  out.textContent='Checking files on the public IPFS gateways…';out.className='pin-result';
   try{
     const [img,meta]=await Promise.all([verifyCid(imageCid,'image'),verifyCid(metadataCid,'metadata')]);
-    const traits=Number(meta.attributes||0);
-    out.textContent=`Artwork resolved (${Math.max(1,Math.round(Number(img.size||0)/1024))} kB) · metadata “${meta.name||'unnamed'}”${traits?` · ${traits} traits`:''}`;
+    if(imageBaseCid&&metadataBaseCid){
+      const [firstImage,firstMeta]=await Promise.all([verifyCid(`${imageBaseCid}/0001.webp`,'image'),verifyCid(`${metadataBaseCid}/0001.json`,'metadata')]);
+      if(firstMeta.image!==`ipfs://${imageBaseCid}/0001.webp`)throw new Error('Edition 0001 JSON does not reference the expected image URI. Regenerate metadata after pinning the image folder.');
+      out.textContent=`Fixed-edition package verified · ${firstImage.contentType||'image'} · ${firstMeta.name||'Edition 0001'} · collection cover ${meta.name||'metadata'}`;
+    }else{
+      out.textContent=`Artwork resolved (${Math.max(1,Math.round(Number(img.size||0)/1024))} kB) · metadata “${meta.name||'unnamed'}”. This is a creator-mint setup, not a public fixed-edition package.`;
+    }
     out.className='pin-result ok';
-  }catch(e){out.textContent=e.message||'That CID could not be resolved.';out.className='pin-result warn';}
+  }catch(e){out.textContent=e.message||'One or more CIDs could not be resolved.';out.className='pin-result warn';}
 }
 function supplyLabel(c){const supply=Number(c.maxSupply||0);return supply?`${num(supply)} supply`:'supply open'}
 function renderUpcomingStrip(){
@@ -914,9 +929,48 @@ function renderCreate(){
   const canUpload=!!state.config?.pinningConfigured;
   const transactionNote=state.config?.transactionsEnabled?`Gnotbook transactions are enabled on ${escapeHTML(state.config.chainId)}. Adena will show the registry, fee and network gas before approval.`:`Transactions are in read-only mode until the Gnotbook registry, treasury and explicit network-write setting are configured.`;
   const {fee,isAdmin,due}=computeLaunchDue();
-  return `<div class="page-heading"><div><div class="eyebrow"><span class="eyedot"></span> Creator studio</div><h1>Make it real.</h1><p>Deploy your own Gno.land collection realm, pin artwork and metadata to IPFS, then mint. The collection registers in Gnotbook's independent registry; no third-party marketplace contract is required.</p></div><div class="heading-actions"><span class="status-chip ${canUpload?'good':'pending'}">${canUpload?'IPFS ready':'Creator-pinned IPFS'}</span><span class="status-chip ${state.config?.transactionsEnabled?'good':'pending'}">${state.config?.transactionsEnabled?'Transactions enabled':'Read-only mode'}</span></div></div>
-  <div class="tabs-row"><button class="tab-btn ${active==='collection'?'active':''}" data-action="create-tab" data-value="collection">Create collection</button><button class="tab-btn ${active==='mint'?'active':''}" data-action="create-tab" data-value="mint">Mint an item</button><button class="tab-btn ${active==='trust'?'active':''}" data-action="create-tab" data-value="trust">Trust & safety</button><button class="tab-btn" data-action="create-tab" data-value="calendar">Mint calendar</button></div>
-  ${active==='collection'?renderCollectionForm(transactionNote,canUpload,fee,isAdmin,due):active==='mint'?renderMintForm(transactionNote,canUpload):active==='calendar'?renderMintCalendar():renderTrustForm()}`;
+  return `<div class="page-heading"><div><div class="eyebrow"><span class="eyedot"></span> Creator studio / publish workflow</div><h1>Make it real<span class="heading-period">.</span></h1><p>Prepare a collection, publish its art and metadata to IPFS, verify the numbered editions, then deploy the collection realm with Adena. Artwork stays in your browser until you pin it.</p></div><div class="heading-actions"><span class="status-chip ${canUpload?'good':'pending'}">${canUpload?'Server pinning available':'Creator-pinned IPFS'}</span><span class="status-chip ${state.config?.transactionsEnabled?'good':'pending'}">${state.config?.transactionsEnabled?'Transactions enabled':'Read-only mode'}</span></div></div>
+  <div class="tabs-row creator-tabs"><button class="tab-btn ${active==='collection'?'active':''}" data-action="create-tab" data-value="collection">01 · Collection</button><button class="tab-btn ${active==='batch'?'active':''}" data-action="create-tab" data-value="batch">02 · Bulk artwork</button><button class="tab-btn ${active==='mint'?'active':''}" data-action="create-tab" data-value="mint">Mint an item</button><button class="tab-btn ${active==='trust'?'active':''}" data-action="create-tab" data-value="trust">Trust & safety</button><button class="tab-btn ${active==='calendar'?'active':''}" data-action="create-tab" data-value="calendar">Mint calendar</button></div>
+  ${active==='collection'?renderCollectionForm(transactionNote,canUpload,fee,isAdmin,due):active==='batch'?renderBatchStudio():active==='mint'?renderMintForm(transactionNote,canUpload):active==='calendar'?renderMintCalendar():renderTrustForm()}`;
+}
+
+function renderBatchStudio(){
+  const b=state.batch;
+  const ready=b.records.length>0;
+  const totalBytes=b.records.reduce((sum,row)=>sum+Number(row.bytes||0),0);
+  const imageCID=/^[a-zA-Z0-9]{20,120}$/.test(b.imageBaseCid||'');
+  const metadataCID=/^[a-zA-Z0-9]{20,120}$/.test(b.metadataBaseCid||'');
+  return `<div class="bulk-layout">
+    <section class="bulk-main panel"><div class="bulk-intro"><div><div class="tiny-label">Artist publishing pipeline</div><h2>One artwork folder. A numbered collection.</h2><p>Prepare up to 1,000 editions in your browser. Morrow builds the image and metadata folder packages, checks the first files, and carries the verified CIDs into collection setup.</p></div><div class="bulk-count"><strong>${ready?num(b.records.length):'—'}</strong><span>editions ready</span></div></div>
+      <div class="bulk-step"><div class="bulk-step-num">01</div><div class="bulk-step-content"><h3>Select the artwork</h3><p>Choose individual images or a complete folder. Files are sorted by filename and renumbered from 0001. PNG/JPEG are converted to WebP; existing WebP files are kept.</p>
+        <label class="upload-drop bulk-drop" for="batchImages"><span class="upload-icon">↥</span><span><strong>${ready?`${num(b.records.length)} images prepared`:'Choose artwork files or a folder'}</strong><span>PNG, JPG, JPEG or WEBP · 15 MB per image · 150 MB per batch · 1,000 editions maximum</span></span><span class="btn btn-outline upload-choose">Choose files</span><input id="batchImages" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" multiple></label>
+        <label class="upload-drop bulk-folder-drop" for="batchFolder"><span class="upload-icon">▤</span><span><strong>Or choose an entire folder</strong><span>Folder selection keeps filename ordering for large artist drops</span></span><span class="btn btn-outline upload-choose">Choose folder</span><input id="batchFolder" type="file" webkitdirectory directory multiple></label>
+        <div class="field"><label for="batchMetadataFile">Optional artist metadata JSON</label><input id="batchMetadataFile" type="file" accept="application/json,.json"><span class="helper">Optional array or { editions: [...] }. Use edition/id, name, description and attributes. No private keys or tokens.</span></div>
+        ${ready?`<div class="bulk-file-summary"><span>${num(b.records.length)} numbered WebP files</span><span>${(totalBytes/1024/1024).toFixed(1)} MB prepared</span><span>${b.records[0].width} × ${b.records[0].height} first image</span></div>`:''}
+      </div></div>
+      <div class="bulk-step"><div class="bulk-step-num">02</div><div class="bulk-step-content"><h3>Pin the images folder</h3><p>Download the package, extract it, then upload the <code>images/</code> folder as an IPFS directory in Pinata, Octopin or another provider. Do not pin only the ZIP file.</p>
+        <div class="field"><label for="batchImageBaseCid">Image directory CID</label><input id="batchImageBaseCid" value="${escapeHTML(b.imageBaseCid)}" placeholder="bafy…" autocomplete="off" spellcheck="false"><span class="helper">This must be the CID of the directory containing <code>0001.webp</code>, <code>0002.webp</code> and so on.</span></div>
+        <button type="button" class="btn btn-accent" data-action="batch-download-images" ${!ready?'disabled':''}>Download image package ↓</button>
+      </div></div>
+      <div class="bulk-step"><div class="bulk-step-num">03</div><div class="bulk-step-content"><h3>Generate and pin the metadata</h3><p>Once the image folder CID is known, Morrow writes one JSON file per edition. Every JSON image field points to its matching numbered WebP file.</p>
+        <div class="field-grid"><div class="field"><label for="batchCollectionName">Collection name</label><input id="batchCollectionName" value="${escapeHTML(b.name)}" maxlength="64" placeholder="e.g. Neon Orchard"></div><div class="field"><label for="batchRoyalty">Royalty percentage</label><select id="batchRoyalty"><option value="0" ${b.royaltyBps===0?'selected':''}>0%</option><option value="200" ${b.royaltyBps===200?'selected':''}>2%</option><option value="500" ${b.royaltyBps===500?'selected':''}>5%</option><option value="750" ${b.royaltyBps===750?'selected':''}>7.5%</option><option value="1000" ${b.royaltyBps===1000?'selected':''}>10%</option></select></div></div>
+        <div class="field"><label for="batchDescription">Collection description</label><textarea id="batchDescription" maxlength="1000" placeholder="Tell collectors about the artwork…">${escapeHTML(b.description)}</textarea></div>
+        <div class="field"><label for="batchWebsite">Project website (optional)</label><input id="batchWebsite" type="url" value="${escapeHTML(b.website)}" placeholder="https://…"></div>
+        <button type="button" class="btn btn-accent" data-action="batch-build-metadata" ${!ready||!imageCID?'disabled':''}>Generate metadata package</button>
+        <div class="field"><label for="batchMetadataBaseCid">Metadata directory CID</label><input id="batchMetadataBaseCid" value="${escapeHTML(b.metadataBaseCid)}" placeholder="bafy…" autocomplete="off" spellcheck="false"><span class="helper">Upload the extracted <code>metadata/</code> folder as a directory, then paste its root CID.</span></div>
+        <button type="button" class="btn btn-outline" data-action="batch-download-metadata" ${!b.metadataZip?'disabled':''}>Download metadata package ↓</button>
+      </div></div>
+      <div class="bulk-step"><div class="bulk-step-num">04</div><div class="bulk-step-content"><h3>Verify before publishing</h3><p>We resolve the first image, first edition JSON and collection JSON from public IPFS gateways, then compare the NFT's image URI against the image directory CID.</p>
+        <button type="button" class="btn btn-accent" data-action="batch-verify" ${!ready||!imageCID||!metadataCID||!b.metadataZip?'disabled':''}>Verify package</button>
+        <span class="status-chip ${b.verified?'good':'pending'}">${b.verified?'Package verified':'Not verified'}</span>
+        ${b.error?`<div class="inline-info danger-info" role="alert">${escapeHTML(b.error)}</div>`:''}
+        ${b.verified?`<div class="inline-info bulk-success">First image, edition metadata and collection metadata resolve. The CIDs can now be used to create the collection.</div>`:''}
+        <button type="button" class="btn btn-accent" data-action="batch-use-package" ${!b.verified?'disabled':''}>Use verified package in collection setup ↗</button>
+      </div></div>
+      <div class="bulk-note"><strong>What this does — and does not do.</strong> Browser-side preparation avoids sending hundreds of megabytes through the marketplace server. You pin the two folders with your own IPFS provider. After deployment, the current Gno contract mints one numbered edition per <code>PublicMint</code> transaction; this tool does not combine 1,000 mints into one transaction.</div>
+    </section>
+    <aside class="bulk-aside"><div class="panel"><div class="tiny-label">Package rules</div><h3>Built for artist drops</h3><ul class="bulk-rules"><li><b>1,000</b><span>maximum editions per package</span></li><li><b>15 MB</b><span>maximum source image size</span></li><li><b>150 MB</b><span>maximum selected source size</span></li><li><b>WebP</b><span>numbered artwork format</span></li></ul></div><div class="panel"><div class="tiny-label">IPFS / ownership</div><h3>Your files stay yours</h3><p>Artwork is processed locally in this browser. Morrow never asks for your Pinata/Octopin API key. Public IPFS content is permanent and visible to anyone who has its CID.</p><p class="note" style="margin-top:12px">Keep your original source files and a copy of each final ZIP. Check artist permissions and metadata before pinning.</p></div></aside>
+  </div>`;
 }
 
 // The featured-collection launch block belongs with the collection on the homepage: it is an
@@ -926,12 +980,13 @@ function renderCollectionForm(transactionNote,canUpload,launchFeeGnot,isAdmin,du
   const tzOptions=[['+00:00','UTC ±00:00'],['-12:00','UTC −12:00'],['-10:00','UTC −10:00 Honolulu'],['-08:00','UTC −08:00 Los Angeles'],['-07:00','UTC −07:00 Denver'],['-06:00','UTC −06:00 Mexico City'],['-05:00','UTC −05:00 New York'],['-04:00','UTC −04:00 Santiago'],['-03:00','UTC −03:00 São Paulo'],['+01:00','UTC +01:00 Berlin'],['+02:00','UTC +02:00 Kyiv'],['+03:00','UTC +03:00 Moscow'],['+04:00','UTC +04:00 Dubai'],['+05:30','UTC +05:30 Mumbai'],['+07:00','UTC +07:00 Bangkok'],['+08:00','UTC +08:00 Singapore'],['+09:00','UTC +09:00 Tokyo'],['+10:00','UTC +10:00 Sydney'],['+12:00','UTC +12:00 Auckland']];
   const wl=state.draftWhitelist||null;
   const tzDefault=state.wallet?'+02:00':'+02:00';
-  const freeSelected=(state.draftMintType||'free')==='free';
-  return `<form id="collectionForm" class="form-layout"><div class="panel"><div class="form-stack"><div><div class="tiny-label">01 / Identity</div><h3 style="margin-top:5px">Create your collection</h3><p style="margin-top:5px">Save a collection draft to this server (free, no wallet needed), then optionally launch it on-chain with Adena. Nothing shows up in Gnotbook until a draft or an on-chain registry record exists.</p></div>
-  <div class="field"><label for="collectionName">Collection name *</label><input id="collectionName" name="name" required maxlength="64" placeholder="e.g. Neon Orchard"><span class="helper">Displayed across the marketplace and wallet.</span></div>
+  const batchPackage=state.batchPackage||null;
+  const freeSelected=(state.draftMintType||(batchPackage?'paid':'free'))==='free';
+  return `<form id="collectionForm" class="form-layout"><div class="panel"><div class="form-stack"><div><div class="tiny-label">01 / Identity</div><h3 style="margin-top:5px">Create your collection</h3><p style="margin-top:5px">Save a collection draft to this server (free, no wallet needed), then optionally launch it on-chain with Adena. Nothing shows up in Gnotbook until a draft or an on-chain registry record exists.</p>${batchPackage?`<div class="inline-info bulk-success" style="margin-top:10px">Verified artist package loaded: <strong>${num(batchPackage.count)} editions</strong>. Keep supply equal to this count and do not change either directory CID.</div>`:``}</div>
+  <div class="field"><label for="collectionName">Collection name *</label><input id="collectionName" name="name" required maxlength="64" value="${escapeHTML(batchPackage?.name||'')}" placeholder="e.g. Neon Orchard"><span class="helper">Displayed across the marketplace and wallet.</span></div>
   <div class="field-grid"><div class="field"><label for="collectionSymbol">Ticker / symbol *</label><input id="collectionSymbol" name="symbol" required maxlength="11" pattern="[A-Za-z0-9]{1,11}" placeholder="GARDEN"><span class="helper">1–11 letters or numbers.</span></div><div class="field"><label for="collectionSlug">Realm slug *</label><input id="collectionSlug" name="slug" required maxlength="11" pattern="[a-z][a-z0-9]{1,10}" placeholder="gardens"><span class="helper">Lowercase letters/numbers, 2–11 chars. One collection per slug.</span></div></div>
   <div class="field"><label for="collectionNamespace">Your Gno.land namespace (wallet address)</label><input id="collectionNamespace" name="namespace" value="${walletAddr}" readonly placeholder="Connect Adena to fill your wallet address"><span class="helper">Required only for the on-chain launch — the connected wallet address becomes the realm namespace.</span></div>
-  <div class="field"><label for="collectionDescription">Description</label><textarea id="collectionDescription" name="description" maxlength="1000" placeholder="What makes this collection special?"></textarea></div>
+  <div class="field"><label for="collectionDescription">Description</label><textarea id="collectionDescription" name="description" maxlength="1000" placeholder="What makes this collection special?">${escapeHTML(batchPackage?.description||'')}</textarea></div>
   ${state.lastDraft?`<div class="inline-info" id="draftSavedNote"><strong>✓ Draft “${escapeHTML(state.lastDraft.name)}” saved on this server${state.lastDraft.whitelistCount?` with ${num(state.lastDraft.whitelistCount)} whitelisted wallets`:''}.</strong> It is not deployed on-chain yet. <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn btn-dark btn-sm" data-route="upcoming">Open Upcoming mints →</button><button type="button" class="btn btn-outline btn-sm" data-action="launch-collection">Launch on-chain</button></div></div>`:''}
   <div><div class="tiny-label">01b / Artwork &amp; metadata on IPFS</div></div>
   ${canUpload
@@ -954,10 +1009,11 @@ function renderCollectionForm(transactionNote,canUpload,launchFeeGnot,isAdmin,du
       </ol>
     </div>
     <div class="field-grid">
-      <div class="field"><label for="pinImageCid">Artwork CID *</label><input id="pinImageCid" name="imageCid" placeholder="bafybei…  (the cover image)" autocomplete="off" spellcheck="false"><span class="helper">The pinned cover image. It becomes the collection banner and the edition artwork.</span></div>
-      <div class="field"><label for="pinMetadataCid">Metadata CID *</label><input id="pinMetadataCid" name="metadataCid" placeholder="bafybei…  (metadata.json)" autocomplete="off" spellcheck="false"><span class="helper">A JSON with <code>name</code>, <code>image</code> and optional <code>attributes</code>.</span></div>
+      <div class="field"><label for="pinImageCid">Artwork CID *</label><input id="pinImageCid" name="imageCid" value="${escapeHTML(batchPackage?.imageCid||'')}" placeholder="bafybei…/0001.webp  (the cover image)" autocomplete="off" spellcheck="false"><span class="helper">The pinned cover image. It becomes the collection banner and the edition artwork.</span></div>
+      <div class="field"><label for="pinMetadataCid">Metadata CID *</label><input id="pinMetadataCid" name="metadataCid" value="${escapeHTML(batchPackage?.metadataCid||'')}" placeholder="bafybei…/collection.json" autocomplete="off" spellcheck="false"><span class="helper">For a fixed-edition drop, use <code>metadata-folder-CID/collection.json</code>.</span></div>
     </div>
-    <div class="field"><label for="pinImageBaseCid">Image base directory CID</label><input id="pinImageBaseCid" name="imageBaseCid" placeholder="optional — the folder that holds all editions" autocomplete="off" spellcheck="false"><span class="helper">Only needed when your editions live in a folder: the contract stores this base and reads <code>&lt;base&gt;/&lt;id&gt;.webp</code>.</span></div>
+    <div class="field"><label for="pinImageBaseCid">Image base directory CID</label><input id="pinImageBaseCid" name="imageBaseCid" value="${escapeHTML(batchPackage?.imageBaseCid||'')}" placeholder="IPFS directory CID for all edition images" autocomplete="off" spellcheck="false"><span class="helper">The contract reads <code>&lt;image-base&gt;/0001.webp</code>, <code>0002.webp</code>, and so on.</span></div>
+    <div class="field"><label for="pinMetadataBaseCid">Metadata base directory CID</label><input id="pinMetadataBaseCid" name="metadataBaseCid" value="${escapeHTML(batchPackage?.metadataBaseCid||'')}" placeholder="IPFS directory CID for all edition JSON files" autocomplete="off" spellcheck="false"><span class="helper">The contract reads <code>&lt;metadata-base&gt;/0001.json</code>, <code>0002.json</code>, and so on. Both directory CIDs are required for public fixed-edition minting.</span></div>
     <div class="pin-actions">
       <button type="button" class="btn btn-outline" data-action="verify-cids">Check the CIDs</button>
       <span class="pin-result" id="cidCheckResult">Not checked yet.</span>
@@ -966,8 +1022,8 @@ function renderCollectionForm(transactionNote,canUpload,launchFeeGnot,isAdmin,du
   <div><div class="tiny-label">02 / Mint schedule &amp; type</div></div>
   <div class="field-grid"><div class="field"><label for="mintStartDate">Mint start date</label><input id="mintStartDate" type="date"><span class="helper">Leave empty for “date TBA” — the mint shows as Draft.</span></div><div class="field"><label for="mintStartTime">Mint start time</label><input id="mintStartTime" type="time"></div></div>
   <div class="field"><label for="mintTimezone">Mint timezone</label><select id="mintTimezone">${tzOptions.map(([v,l])=>`<option value="${v}" ${v===tzDefault?'selected':''}>${l}</option>`).join('')}</select><span class="helper">The countdown on Upcoming mints is built from this moment, converted to real time.</span></div>
-  <div class="field-grid"><div class="field"><label for="mintType">Mint type</label><select id="mintType"><option value="free" ${freeSelected?'selected':''}>Free mint — no price</option><option value="paid" ${!freeSelected?'selected':''}>Paid mint — price required</option></select></div><div class="field"><label for="mintPriceGnot">Mint price (GNOT, for paid mints)</label><input id="mintPriceGnot" type="number" min="0" step="0.000001" value="${freeSelected?'0':'5'}" ${freeSelected?'disabled':''}><span class="helper">For a draft this price is public metadata; the enforced price comes from the realm contract.</span></div></div>
-  <div class="field"><label for="collectionWebsite">Project website link</label><input id="collectionWebsite" type="url" maxlength="300" placeholder="https://your-project.example"><span class="helper">Optional; must be a valid http(s) link.</span></div>
+  <div class="field-grid"><div class="field"><label for="mintType">Mint type</label><select id="mintType"><option value="free" ${freeSelected?'selected':''}>Free mint — no price</option><option value="paid" ${!freeSelected?'selected':''}>Paid mint — price required</option></select></div><div class="field"><label for="mintPriceGnot">Mint price (GNOT, for paid mints)</label><input id="mintPriceGnot" type="number" min="0" step="0.000001" value="${freeSelected?'0':'5'}" ${freeSelected?'disabled':''}><span class="helper">Public fixed-edition mint requires a positive on-chain price. The current contract mints one edition per transaction.</span></div></div>
+  <div class="field"><label for="collectionWebsite">Project website link</label><input id="collectionWebsite" name="website" type="url" maxlength="300" value="${escapeHTML(batchPackage?.website||'')}" placeholder="https://your-project.example"><span class="helper">Optional; must be a valid http(s) link.</span></div>
   <div><div class="tiny-label">03 / Whitelist (allowlist)</div></div>
   <div class="wl-header"><div><div class="field"><label for="whitelistFile">Wallet addresses file (g1… addresses)</label><input id="whitelistFile" type="file" accept=".txt,.csv,.json,text/plain,text/csv,application/json"><span class="helper">TXT, CSV or JSON — one g1… address per line (or CSV first column / JSON array). Max 10,000 addresses, 128 kB. Parsed and de-duplicated by the server.</span></div></div>
     <div class="wl-actions">${wl?`<button type="button" class="btn btn-outline btn-sm" data-action="remove-wl">Remove list</button>`:''}</div></div>
@@ -978,8 +1034,8 @@ function renderCollectionForm(transactionNote,canUpload,launchFeeGnot,isAdmin,du
   <label class="checkbox-row"><input id="confirmWhitelist" type="checkbox"><span>I confirm this allowlist was provided by the project team. Addresses are stored on the server and are never shown publicly — only the wallet count is published.</span></label>`
     :`<div class="inline-info">No allowlist attached. Without one, a free mint is public for everyone; the on-chain gate is not enforced until the realm supports allowlist proofs.</div>`}
   <div><div class="tiny-label">04 / Supply, royalty, rights</div></div>
-  <div class="field"><label for="maxSupply">Supply cap</label><input id="maxSupply" type="number" min="1" max="1000000" value="1000" required><span class="helper">Finite cap from 1 to 1,000,000 creator-minted items.</span></div>
-  <div class="field"><label for="royalty">Creator royalty (%)</label><select id="royalty"><option value="2" selected>2% — recommended</option><option value="0">0% — no secondary royalty</option><option value="5">5%</option><option value="7.5">7.5%</option><option value="10">10% — protocol maximum</option></select><span class="helper">Applied by this collection's Buy contract. Royalty is separate from platform fees.</span></div>
+  <div class="field"><label for="maxSupply">Supply cap</label><input id="maxSupply" type="number" min="1" max="1000000" value="${Number(batchPackage?.count||1000)}" required><span class="helper">For a fixed-edition drop, supply must match the prepared image/metadata pair count.</span></div>
+  <div class="field"><label for="royalty">Creator royalty (%)</label><select id="royalty"><option value="2" ${Number(batchPackage?.royaltyBps??200)===200?'selected':''}>2% — recommended</option><option value="0" ${Number(batchPackage?.royaltyBps)===0?'selected':''}>0% — no secondary royalty</option><option value="5" ${Number(batchPackage?.royaltyBps)===500?'selected':''}>5%</option><option value="7.5" ${Number(batchPackage?.royaltyBps)===750?'selected':''}>7.5%</option><option value="10" ${Number(batchPackage?.royaltyBps)===1000?'selected':''}>10% — protocol maximum</option></select><span class="helper">Applied by this collection's Buy contract. Royalty is separate from platform fees.</span></div>
   <label class="checkbox-row"><input id="confirmRights" type="checkbox" required><span>I own or have permission to publish this artwork and collection name. ${canUpload?'I understand that IPFS is public and immutable.':'I understand saved artwork stays on this server until IPFS is configured.'}</span></label>
   <div class="inline-info">✓ <strong>Save collection</strong> stores a draft in this server's store — free, no wallet. ⬆ <strong>Launch on-chain</strong> publishes the artwork you pinned and deploys the realm with Adena. ${escapeHTML(transactionNote)}</div>
   <div style="display:flex;gap:12px;flex-wrap:wrap">
@@ -1129,6 +1185,14 @@ function render(){
   if(track&&track.children.length>1)sliderTimer=setInterval(()=>heroSlide(1),6000);
 }
 function routeTo(route,fromHistory=false){state.route=route;if(!fromHistory)writeRouteLocation(true);closeModal();closeMenu();render();window.scrollTo({top:0,behavior:'smooth'})}
+function invalidateBatchMetadata(){
+  state.batch.metadataZip=null;
+  state.batch.metadataBaseCid='';
+  state.batch.verified=false;
+  const cidField=$('#batchMetadataBaseCid');if(cidField)cidField.value='';
+  const verifyButton=$('[data-action="batch-verify"]');if(verifyButton)verifyButton.disabled=true;
+  const useButton=$('[data-action="batch-use-package"]');if(useButton)useButton.disabled=true;
+}
 function wireDynamicInputs(){
   const sort=$('#sortSelect'); if(sort)sort.addEventListener('change',e=>{state.sort=e.target.value;render()});
   const collectionSort=$('#collectionSortSelect'); if(collectionSort)collectionSort.addEventListener('change',e=>{state.collectionSort=e.target.value;render()});
@@ -1144,6 +1208,29 @@ function wireDynamicInputs(){
   const mintPrice=$('#mintPriceGnot');if(mintPrice)mintPrice.addEventListener('input',()=>mintPrice.setAttribute('data-last',mintPrice.value));
   const wlFile=$('#whitelistFile');if(wlFile)wlFile.addEventListener('change',()=>{handleWhitelistFile(wlFile.files?.[0]).catch(err=>toast(err.message||'Could not read the allowlist file.','error',7500))});
   const sortUpcoming=$('#upcomingSortSelect');if(sortUpcoming)sortUpcoming.addEventListener('change',e=>{state.upcomingSort=e.target.value;render()});
+  const prepareBatchFiles=async files=>{
+    try{
+      const records=await window.MorrowArtistPack.prepare(files);
+      state.batch.records=records;state.batch.imagesZip=await window.MorrowArtistPack.imagesZip(records,state.batch.name);
+      state.batch.imageBaseCid='';state.batch.metadataBaseCid='';state.batchPackage=null;state.batch.error='';
+      invalidateBatchMetadata();
+      toast(`${num(records.length)} artwork files prepared as numbered WebP editions.`,'ok',6500);render();
+    }catch(error){state.batch.error=error.message||'Could not prepare the artwork.';render();toast(state.batch.error,'error',8000)}
+  };
+  const batchImages=$('#batchImages');if(batchImages)batchImages.addEventListener('change',()=>prepareBatchFiles(batchImages.files));
+  const batchFolder=$('#batchFolder');if(batchFolder)batchFolder.addEventListener('change',()=>prepareBatchFiles(batchFolder.files));
+  const batchMeta=$('#batchMetadataFile');if(batchMeta)batchMeta.addEventListener('change',async()=>{
+    const file=batchMeta.files?.[0];if(!file)return;
+    try{if(file.size>2*1024*1024)throw new Error('Artist metadata JSON must be 2 MB or smaller.');state.batch.overrides=window.MorrowArtistPack.normaliseOverrides(JSON.parse(await file.text()));state.batch.error='';invalidateBatchMetadata();toast('Artist metadata overrides loaded. Regenerate and re-pin the metadata folder.','ok',7500);}
+    catch(error){state.batch.overrides=null;state.batch.error=error.message||'Could not read artist metadata.';invalidateBatchMetadata();toast(state.batch.error,'error',8000)}
+    render();
+  });
+  const batchImageCid=$('#batchImageBaseCid');if(batchImageCid)batchImageCid.addEventListener('input',()=>{state.batch.imageBaseCid=batchImageCid.value.trim().replace(/^ipfs:\/\//i,'');invalidateBatchMetadata();});
+  const batchMetaCid=$('#batchMetadataBaseCid');if(batchMetaCid)batchMetaCid.addEventListener('input',()=>{state.batch.metadataBaseCid=batchMetaCid.value.trim().replace(/^ipfs:\/\//i,'');state.batch.verified=false;});
+  const batchName=$('#batchCollectionName');if(batchName)batchName.addEventListener('input',()=>{state.batch.name=batchName.value;invalidateBatchMetadata();});
+  const batchDesc=$('#batchDescription');if(batchDesc)batchDesc.addEventListener('input',()=>{state.batch.description=batchDesc.value;invalidateBatchMetadata();});
+  const batchWebsite=$('#batchWebsite');if(batchWebsite)batchWebsite.addEventListener('input',()=>{state.batch.website=batchWebsite.value;invalidateBatchMetadata();});
+  const batchRoyalty=$('#batchRoyalty');if(batchRoyalty)batchRoyalty.addEventListener('change',()=>{state.batch.royaltyBps=Number(batchRoyalty.value)||0;invalidateBatchMetadata();});
   const nameMint=$('#mintName');if(nameMint)nameMint.addEventListener('input',()=>{$('#mintPreviewName').textContent=nameMint.value||'Your NFT'});
   const imgMint=$('#mintImage');if(imgMint)imgMint.addEventListener('change',()=>{const f=imgMint.files?.[0];if(!f)return;$('#mintFileLabel').textContent=f.name;$('#mintPreview').src=URL.createObjectURL(f)});
   const namespace=$('#collectionNamespace');if(namespace) namespace.value=state.wallet?.address||'';
@@ -1500,9 +1587,14 @@ async function launchCollection(form){
   if(!state.wallet)throw new Error('Connect Adena before creating a collection.');
   if(!state.config?.transactionsEnabled)throw new Error('Collection deployment is paused while transactions are disabled for this network.');
   const selfMode=pinMode()==='self';
-  const {imageCid,metadataCid,imageBaseCid}=cidValues();
+  const {imageCid,metadataCid,imageBaseCid,metadataBaseCid}=cidValues();
+  const fixedEdition=Boolean(imageBaseCid||metadataBaseCid);
+  if(Boolean(imageBaseCid)!==Boolean(metadataBaseCid))throw new Error('Fixed-edition collections need both image and metadata directory CIDs.');
   if(!selfMode&&!state.config?.pinningConfigured)throw new Error('This server has no IPFS pinning credential. Pin the files in your own account and choose “I pinned it myself”.');
-  if(selfMode&&(!imageCid||!metadataCid))throw new Error('Paste the artwork CID and the metadata CID you pinned.');
+  if(selfMode&&(!imageCid||!metadataCid))throw new Error('Paste the artwork file CID and collection metadata CID you pinned.');
+  if(fixedEdition){
+    if(!imageCid.startsWith(`${imageBaseCid}/`)||!metadataCid.startsWith(`${metadataBaseCid}/`))throw new Error('For fixed editions, the artwork and collection metadata must be file paths inside their matching directory CIDs.');
+  }
   const fd=new FormData(form);
   const name=String(fd.get('name')||'').trim();
   const symbol=String(fd.get('symbol')||'').trim().toUpperCase();
@@ -1512,11 +1604,23 @@ async function launchCollection(form){
   const coverFile=$('#collectionCover')?.files?.[0];
   const maxSupply=Number($('#maxSupply')?.value);
   const royaltyBps=Math.round(Number($('#royalty')?.value||0)*100);
+  const mintType=$('#mintType')?.value==='paid'?'paid':'free';
+  const mintPriceGnot=Number($('#mintPriceGnot')?.value||0);
+  const mintPriceUgnot=Math.round(mintPriceGnot*1_000_000);
   if(!name||name.length>64)throw new Error('Collection name must be between 1 and 64 characters.');
+  if(state.batchPackage){
+    if(name!==state.batchPackage.name||description!==state.batchPackage.description||website!==state.batchPackage.website||royaltyBps!==state.batchPackage.royaltyBps){
+      throw new Error('Collection name, description, website and royalty must match the verified IPFS metadata. Return to Bulk artwork, update the package, pin its new metadata folder and verify it again.');
+    }
+  }
   if(!/^[A-Z0-9]{1,11}$/.test(symbol))throw new Error('Symbol must contain 1–11 letters or numbers.');
   if(!slugSafe(slug))throw new Error('Slug must be lowercase, start with a letter and contain 2–11 letters/numbers.');
   if(!/^[a-zA-Z0-9._-]{2,80}$/.test(namespace)||namespace.includes('..'))throw new Error('Connect Adena so your realm namespace is filled in.');
   if(!Number.isInteger(maxSupply)||maxSupply<1||maxSupply>1_000_000)throw new Error('Supply must be from 1 to 1,000,000.');
+  if(fixedEdition&&state.batchPackage&&maxSupply!==state.batchPackage.count)throw new Error(`Supply must equal the ${state.batchPackage.count} editions in your verified artwork package.`);
+  if(royaltyBps<0||royaltyBps>1000)throw new Error('Royalty must be between 0% and 10%.');
+  if(fixedEdition&&mintType!=='paid')throw new Error('The current fixed-edition contract requires a positive paid mint price. A free public mint is not supported by this contract.');
+  if(fixedEdition&&(!(mintPriceUgnot>0)||!Number.isSafeInteger(mintPriceUgnot)))throw new Error('Fixed-edition public mint needs a positive GNOT price (up to 6 decimal places).');
   if(!coverFile&&!selfMode)throw new Error('Choose a cover image.');
   if(!$('#confirmRights')?.checked)throw new Error('Confirm that you own or have permission to publish this artwork.');
   const protectedNames=['guardians','gno foundation','gno land','adena','gnoscan','morrow marketplace','opensea','rarible'];
@@ -1528,23 +1632,29 @@ async function launchCollection(form){
   if((state.market.collections||[]).some(c=>c.slug===slug))throw new Error('That realm slug is already registered. Choose another one.');
   const pkgPath=`gno.land/r/${namespace}/${slug}`;
   const button=$('#launchCollectionButton');
-  setBusy(true); if(button)button.textContent=selfMode?'Verifying your CIDs…':'Pinning cover and metadata to IPFS…';
+  setBusy(true); if(button)button.textContent=selfMode?'Verifying IPFS folders…':'Pinning cover and metadata to IPFS…';
   try{
     let cover,manifest;
     if(selfMode){
-      // The creator's own pin is the source of truth; the server only checks that it resolves.
       const [img,meta]=await Promise.all([verifyCid(imageCid,'image'),verifyCid(metadataCid,'metadata')]);
       cover={uri:`ipfs://${imageCid}`,gatewayUrl:img.url};
       manifest={uri:`ipfs://${metadataCid}`,name:meta.name||''};
+      if(fixedEdition){
+        const [firstImage,firstMeta]=await Promise.all([verifyCid(`${imageBaseCid}/0001.webp`,'image'),verifyCid(`${metadataBaseCid}/0001.json`,'metadata')]);
+        if(firstMeta.image!==`ipfs://${imageBaseCid}/0001.webp`)throw new Error('Edition 0001 metadata references a different image CID. Regenerate and re-pin the metadata folder.');
+        if(!firstImage.url)throw new Error('The first edition image did not resolve on public IPFS gateways.');
+      }
     }else{
+      if(fixedEdition)throw new Error('Bulk fixed-edition collections must be pinned from the creator account, so both full directory CIDs stay under your control.');
       cover=await uploadImage(coverFile,`${slug}-cover`);
       manifest=await pinMetadata(name,description,cover.uri,{attributes:[{trait_type:'Network',value:state.config.chainId}]});
     }
     const source=await contractSource('/api/contracts/collection-template','collection contract',{'__PACKAGE__':slug,'__REGISTRY_PATH__':String(state.config.registryPath||'')});
     const {due,dueSend}=computeLaunchDue();
+    const contractMintPrice=fixedEdition?mintPriceUgnot:0;
     const messages=[
       {type:'/vm.m_addpkg',value:{creator:state.wallet.address,deposit:'1ugnot',package:{name:slug,path:pkgPath,files:[{name:`${slug}.gno`,body:source}]}}},
-      transactionMessage(pkgPath,'Init',[name,symbol,cover.gatewayUrl,manifest.uri,String(maxSupply),'0',String(royaltyBps),imageBaseCid?`ipfs://${imageBaseCid}`:'',metadataCid?`ipfs://${metadataCid}`:'','0'],dueSend)
+      transactionMessage(pkgPath,'Init',[name,symbol,cover.gatewayUrl,manifest.uri,String(maxSupply),String(contractMintPrice),String(royaltyBps),imageBaseCid?`ipfs://${imageBaseCid}`:'',metadataBaseCid?`ipfs://${metadataBaseCid}`:'',state.wallet.address,'0'],dueSend)
     ];
     if(button)button.textContent='Waiting for Adena approval…';
     const result=await sendTx(messages,`Gnotbook collection launch — package, IPFS metadata and ${due?`the fixed ${due.toLocaleString('en-US')} GNOT launch fee`:'no launch fee: the registry admin wallet launches free'}`);
@@ -1554,11 +1664,11 @@ async function launchCollection(form){
     try{
       await api('/api/collections/create',{
         method:'POST',
-        body:JSON.stringify({name,symbol,slug,path:pkgPath,image:cover.gatewayUrl,maxSupply,mintPriceUgnot:5_000_000,royaltyBps,creator:state.wallet.address,description,txHash:result.hash})
+        body:JSON.stringify({name,symbol,slug,path:pkgPath,image:cover.gatewayUrl,maxSupply,mintType:fixedEdition?'paid':mintType,mintPriceUgnot:contractMintPrice,royaltyBps,creator:state.wallet.address,description,website:($('#collectionWebsite')?.value||'').trim(),txHash:result.hash,imageCid,metadataCid,imageBaseCid,metadataBaseCid})
       });
     }catch{}
     if(result.hash)state.txHistory.unshift({hash:result.hash,type:'Collection launch',time:Date.now()});
-    toast('Launch submitted to Adena. The collection appears in the registry after the transaction confirms.','ok',9000);
+    toast(fixedEdition?'Launch submitted. The verified fixed-edition folders are wired to the collection contract.':'Launch submitted. This collection uses creator-only single-item minting until fixed edition folders are configured.','ok',9000);
     if(result.hash)verifyPoints(result.hash);
     await refreshMarket(); state.activeCreateTab='mint'; render();
   } finally { setBusy(false) }
@@ -1629,7 +1739,7 @@ async function saveDraftCollection(){
   if(!$('#confirmRights')?.checked)throw new Error('Confirm that you own or have permission to publish this artwork.');
   setBusy(true);
   try{
-    const {collection,whitelist}=await api('/api/collections/create',{method:'POST',body:JSON.stringify({name,symbol,slug,description,mintType,mintPriceUgnot,maxSupply,royaltyBps,website,mintStartAt,creator:state.wallet?.address||'',whitelistText:wl?wl.raw:undefined,imageCid:cidValues().imageCid,metadataCid:cidValues().metadataCid,imageBaseCid:cidValues().imageBaseCid})});
+    const {collection,whitelist}=await api('/api/collections/create',{method:'POST',body:JSON.stringify({name,symbol,slug,description,mintType,mintPriceUgnot,maxSupply,royaltyBps,website,mintStartAt,creator:state.wallet?.address||'',whitelistText:wl?wl.raw:undefined,imageCid:cidValues().imageCid,metadataCid:cidValues().metadataCid,imageBaseCid:cidValues().imageBaseCid,metadataBaseCid:cidValues().metadataBaseCid})});
     state.lastDraft={name,slug,whitelistCount:whitelist?.count||0,at:Date.now()};
     toast(`Collection “${collection.name||name}” saved on the server${whitelist?.count?` — allowlist ready (${whitelist.count} wallets)`:''}. It shows in the catalog and Upcoming mints now.`,'ok',9000);
     // Keep the URL in sync with the route, otherwise a refresh lands on the form again.
@@ -1764,6 +1874,56 @@ document.addEventListener('click',async event=>{
           localStorage.setItem('morrow_favorites',JSON.stringify([...state.favorites]));render();return;
         }
         case 'create-tab':{state.activeCreateTab=action.dataset.value||'collection';render();return}
+        case 'batch-download-images':{
+          if(!state.batch.records.length)throw new Error('Select and prepare artwork first.');
+          state.batch.imagesZip=state.batch.imagesZip||await window.MorrowArtistPack.imagesZip(state.batch.records,state.batch.name);
+          window.MorrowArtistPack.download(state.batch.imagesZip,'morrow-images-package.zip');return;
+        }
+        case 'batch-build-metadata':{
+          const imageBaseCid=($('#batchImageBaseCid')?.value||state.batch.imageBaseCid||'').trim().replace(/^ipfs:\/\//i,'');
+          state.batch.name=($('#batchCollectionName')?.value||'').trim();
+          state.batch.description=($('#batchDescription')?.value||'').trim();
+          state.batch.website=($('#batchWebsite')?.value||state.batch.website||'').trim();
+          state.batch.royaltyBps=Number($('#batchRoyalty')?.value??200);
+          if(!state.batch.records.length)throw new Error('Prepare the artwork before generating metadata.');
+          if(!state.batch.name)throw new Error('Enter the collection name before generating metadata.');
+          if(state.batch.website&&!/^https?:\/\/\S+$/i.test(state.batch.website))throw new Error('Project website must start with http:// or https://.');
+          state.batch.imageBaseCid=imageBaseCid;
+          state.batch.metadataZip=await window.MorrowArtistPack.metadataZip(state.batch.records,{imageBaseCid,name:state.batch.name,description:state.batch.description,royaltyBps:state.batch.royaltyBps,website:state.batch.website,overrides:state.batch.overrides});
+          state.batch.verified=false;state.batch.metadataBaseCid='';state.batch.error='';render();toast('Metadata package generated. Extract and pin the metadata/ directory.','ok',7500);return;
+        }
+        case 'batch-download-metadata':{
+          if(!state.batch.metadataZip)throw new Error('Generate the metadata package first.');
+          window.MorrowArtistPack.download(state.batch.metadataZip,'morrow-metadata-package.zip');return;
+        }
+        case 'batch-verify':{
+          const b=state.batch;
+          if(!b.metadataZip)throw new Error('Generate a fresh metadata package after the latest artwork, name, description, website, royalty or attributes change.');
+          b.imageBaseCid=($('#batchImageBaseCid')?.value||b.imageBaseCid||'').trim().replace(/^ipfs:\/\//i,'');
+          b.metadataBaseCid=($('#batchMetadataBaseCid')?.value||b.metadataBaseCid||'').trim().replace(/^ipfs:\/\//i,'');
+          if(!b.records.length)throw new Error('Prepare artwork first.');
+          if(!/^[a-zA-Z0-9]{20,120}$/.test(b.imageBaseCid)||!/^[a-zA-Z0-9]{20,120}$/.test(b.metadataBaseCid))throw new Error('Paste both root directory CIDs (not a file CID and not ipfs://).');
+          b.verified=false;b.error='';render();
+          try{
+            const [image,edition,collection]=await Promise.all([
+              verifyCid(`${b.imageBaseCid}/0001.webp`,'image'),verifyCid(`${b.metadataBaseCid}/0001.json`,'metadata'),verifyCid(`${b.metadataBaseCid}/collection.json`,'metadata')
+            ]);
+            const expected=`ipfs://${b.imageBaseCid}/0001.webp`;
+            if(edition.image!==expected)throw new Error(`Edition 0001 points to ${edition.image||'no image URI'} instead of ${expected}. Regenerate metadata with the correct image folder CID.`);
+            if(!collection.image||collection.image!==expected||!collection.name)throw new Error('collection.json must contain the collection name and the exact first-edition image URI.');
+            const expectedName=(b.name||'Untitled collection').trim();
+            if(collection.name!==expectedName)throw new Error(`collection.json name is “${collection.name}”, not “${expectedName}”. Regenerate metadata after editing the collection name.`);
+            b.verified=true;b.error='';
+            toast(`IPFS verified: ${image.size?Math.round(image.size/1024)+' kB':'image'} · ${edition.name||'Edition 0001'} · ${collection.name}`,'ok',8000);
+          }catch(error){b.error=error.message||'Could not verify the IPFS package.';toast(b.error,'error',9000)}
+          render();return;
+        }
+        case 'batch-use-package':{
+          const b=state.batch;if(!b.verified)throw new Error('Verify both folders before using this package.');
+          b.name=($('#batchCollectionName')?.value||b.name||'').trim();b.description=($('#batchDescription')?.value||b.description||'').trim();b.website=($('#batchWebsite')?.value||b.website||'').trim();
+          state.batchPackage={count:b.records.length,name:b.name,description:b.description,website:b.website,royaltyBps:b.royaltyBps,imageBaseCid:b.imageBaseCid,metadataBaseCid:b.metadataBaseCid,imageCid:`${b.imageBaseCid}/0001.webp`,metadataCid:`${b.metadataBaseCid}/collection.json`};
+          state.draftMintType='paid';state.activeCreateTab='collection';render();window.scrollTo({top:0,behavior:'smooth'});toast('Verified package copied into collection setup. Complete the symbol, slug, mint price and launch review.','ok',8000);return;
+        }
         case 'save-draft':{await saveDraftCollection();return}
         case 'launch-collection':{const form=$('#collectionForm');if(form)await launchCollection(form);return}
         case 'remove-wl':{state.draftWhitelist=null;render();return}

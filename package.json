@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
-    "check": "node --check server.mjs && node --check public/app.js && node --check public/admin.js && node --check scripts/preflight.mjs && node --check scripts/build-collection.mjs && node --check scripts/pin-octopin.mjs && node --check scripts/pin-new-collections.mjs && node --check scripts/pin-three-collections.mjs && node --check scripts/make-release.mjs",
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/artist-pack.js && node --check public/admin.js && node --check scripts/preflight.mjs && node --check scripts/build-collection.mjs && node --check scripts/pin-octopin.mjs && node --check scripts/pin-new-collections.mjs && node --check scripts/pin-three-collections.mjs && node --check scripts/make-release.mjs",
     "preflight": "node scripts/preflight.mjs",
     "test:unit": "node --test tests/*.mjs",
     "test": "npm run check && npm run preflight && npm run test:unit",

@@ -34,8 +34,8 @@ Status legend: `DONE` · `PARTIAL` · `BLOCKED` · `NOT IMPLEMENTED`.
 
 ## P2 — Deliberately not implemented (would be false claims)
 
-- "3 per wallet" (mock claim): contract has no per-wallet cap, only `maxSupply`.
-- "1–10,000 file folder dropzone": server accepts one file per request.
+- Public fixed-edition minting is sequential and capped at two mints per wallet; it is one `PublicMint` transaction per edition, not a batch mint.
+- The browser-side artist pack builder prepares up to 1,000 image files and creates separate image/metadata directory packages. The legacy server upload endpoint still accepts one file per request.
 - "One collection per wallet / 24h", "100 files/day per address", "duplicate art hash check": not enforced on-chain or server-side.
-- "Admin override 0 GNOT": registry `LaunchFee()` is fixed at 250 GNOT with no exemption.
+- Registry admin launches are exempt from the 5 GNOT launch fee; third-party creators pay the configured fee.
 - Hash/deep-link routing: nav is click-driven (`data-route` → `routeTo()`).
