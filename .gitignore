@@ -12,6 +12,8 @@ data/store.json
 nft-collection/pinned-manifest.json
 nft-collection/PIN_RESULTS.txt
 *.zip
+# The trim archive is part of the verified collection: it must exist in CI.
+!nft-collection-archive/editions-1001-1111.zip
 morrow-marketplace-release.zip
 NFTMARKET.zip
 # Local verification screenshots (not part of the app)
